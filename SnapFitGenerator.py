@@ -83,6 +83,9 @@ def read_params(inputs):
         ret_deg=math.degrees(_find(inputs, 'ret').value),
         length=None if auto else _mm(inputs, 'length'),
         through=_find(inputs, 'through').value,
+        taper_pct=_find(inputs, 'taper').value,
+        fillet=_find(inputs, 'fillet').value,
+        pins=_find(inputs, 'pins').value,
     )
 
 
@@ -96,7 +99,12 @@ def apply_preset(inputs, name):
     _find(inputs, 'strain').value = m['strain']
     _find(inputs, 'E').value = m['E']
     _find(inputs, 'lead').value = math.radians(m['lead'])
-    _find(inputs, 'ret').value = math.radians(m['ret'])
+
+
+def apply_type(inputs, name):
+    t = core.TYPES.get(name)
+    if t:
+        _find(inputs, 'ret').value = math.radians(t['ret'])
 
 
 def update_info(inputs):
@@ -110,7 +118,9 @@ def update_info(inputs):
         if _find(inputs, 'autoLen').value:
             _set_mm(inputs, 'length', core.compute(p).length)
         r = core.compute(p)
-        _find(inputs, 'info').formattedText = core.format_report(p, r)
+        tname = _find(inputs, 'ctype').selectedItem.name
+        desc = core.TYPES.get(tname, {}).get('text', '')
+        _find(inputs, 'info').formattedText = '<i>%s</i><br><br>%s' % (desc, core.format_report(p, r))
     except Exception:
         pass
 
@@ -150,8 +160,16 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             for name in core.MATERIALS:
                 dd.listItems.add(name, name == core.DEFAULT_MATERIAL)
 
+            tt = inputs.addDropDownCommandInput(
+                'ctype', 'Тип защёлки', adsk.core.DropDownStyles.TextListDropDownStyle)
+            for name in core.TYPES:
+                tt.listItems.add(name, name == core.DEFAULT_TYPE)
+            tt.tooltip = 'Тип защёлки'
+            tt.tooltipDescription = '\n\n'.join('%s: %s' % (k, v['text']) for k, v in core.TYPES.items())
+
             g = inputs.addGroupCommandInput('params', 'Параметры защёлки').children
             m = core.MATERIALS[core.DEFAULT_MATERIAL]
+            ret0 = core.TYPES[core.DEFAULT_TYPE]['ret']
             g.addBoolValueInput('autoWall', 'Толщину стенки брать с модели', True, '', True)
             g.addValueInput('wall', 'Толщина стенки (вручную)', 'mm', vi.createByReal(2.4 * CM))
             g.addValueInput('arm_t', 'Толщина балки', 'mm', vi.createByReal(m['arm_t'] * CM))
@@ -163,13 +181,17 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             g.addFloatSpinnerCommandInput('E', 'Модуль E, МПа', '', 100.0, 5000.0, 100.0, m['E'])
             g.addValueInput('lead', 'Угол заведения', 'deg', vi.createByReal(math.radians(m['lead'])))
             g.addValueInput('ret', 'Угол возврата (90 = неразъёмно)', 'deg',
-                            vi.createByReal(math.radians(m['ret'])))
+                            vi.createByReal(math.radians(ret0)))
+            g.addFloatSpinnerCommandInput('taper', 'Конус: толщина на конце, % от корня', '',
+                                          30.0, 100.0, 5.0, 50.0)
+            g.addBoolValueInput('fillet', 'Скругление корня балки', True, '', True)
+            g.addBoolValueInput('pins', 'Направляющие штифты по бокам', True, '', True)
             g.addBoolValueInput('autoLen', 'Длина балки по расчёту', True, '', True)
             g.addValueInput('length', 'Длина балки', 'mm', vi.createByReal(10.0 * CM))
             g.addBoolValueInput('through', 'Сквозное окно в стенке', True, '', True)
             g.addBoolValueInput('flip', 'Балка на другой половине', True, '', False)
 
-            inputs.addTextBoxCommandInput('info', 'Расчёт', '', 6, True)
+            inputs.addTextBoxCommandInput('info', 'Расчёт', '', 12, True)
             update_info(inputs)
 
             for cls, ev in ((ExecuteHandler, cmd.execute),
@@ -188,6 +210,8 @@ class InputChangedHandler(adsk.core.InputChangedEventHandler):
             inputs = args.inputs
             if args.input.id == 'material':
                 apply_preset(inputs, _find(inputs, 'material').selectedItem.name)
+            elif args.input.id == 'ctype':
+                apply_type(inputs, _find(inputs, 'ctype').selectedItem.name)
             update_info(inputs)
         except Exception:
             pass
@@ -488,6 +512,20 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False):
             pocket = _make_tool(comp, frame, pocket_poly, P.arm_w + 2 * P.clearance)
             _combine(comp, _fresh(design, body_b), pocket,
                      adsk.fusion.FeatureOperations.CutFeatureOperation)
+
+            # направляющие штифты по бокам балки: штифт на половине A, гнездо на половине B
+            if P.pins:
+                T = _unit(D.crossProduct(N))
+                off = core.pin_offset(P)
+                for sgn in (1.0, -1.0):
+                    fr = (_pt_add(anchor, T, sgn * off * CM), D, N)
+                    pin = _make_tool(comp, fr, core.pin_polygon(P), core.PIN_W)
+                    _combine(comp, _fresh(design, body_a), pin,
+                             adsk.fusion.FeatureOperations.JoinFeatureOperation)
+                    hole = _make_tool(comp, fr, core.pin_pocket_polygon(P),
+                                      core.PIN_W + 2 * P.clearance)
+                    _combine(comp, _fresh(design, body_b), hole,
+                             adsk.fusion.FeatureOperations.CutFeatureOperation)
 
         msg = 'Готово: %d защёлк(и), длина балки %.1f мм.' % (len(frames), res.length)
         if notes:
