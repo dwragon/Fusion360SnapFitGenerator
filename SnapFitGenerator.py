@@ -161,7 +161,7 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             s.addSelectionFilter(sc.ConstructionPlanes)
             s.addSelectionFilter(sc.Faces)
             s.addSelectionFilter(sc.SketchCurves)
-            s.setSelectionLimits(1, 1)
+            s.setSelectionLimits(1, 0)   # можно выбрать несколько линий эскиза, как в Split Body
 
             s = inputs.addSelectionInput(
                 'pts', 'Точки защёлок',
@@ -246,7 +246,7 @@ class ValidateHandler(adsk.core.ValidateInputsEventHandler):
         try:
             i = args.inputs
             ok = (_find(i, 'body').selectionCount == 1 and
-                  _find(i, 'cut').selectionCount == 1 and
+                  _find(i, 'cut').selectionCount >= 1 and
                   _find(i, 'pts').selectionCount >= 1)
             for cid in ('wall', 'arm_t', 'arm_w', 'engage', 'clearance', 'length'):
                 if _find(i, cid).value <= 0:
@@ -262,14 +262,19 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
         try:
             inputs = args.command.commandInputs
             body = adsk.fusion.BRepBody.cast(_find(inputs, 'body').selection(0).entity)
-            cut = _find(inputs, 'cut').selection(0).entity
+            cut_in = _find(inputs, 'cut')
+            cuts = [cut_in.selection(k).entity for k in range(cut_in.selectionCount)]
+            cut = cuts[0]
+            if len(cuts) > 1 and not all(hasattr(c, 'parentSketch') for c in cuts):
+                raise UserError('Несколько объектов реза можно выбирать только для линий эскиза. '
+                                'Плоскость или грань выбирайте по одной.')
             pts_in = _find(inputs, 'pts')
             pts = [_point_of(pts_in.selection(k).entity) for k in range(pts_in.selectionCount)]
             params = read_params(inputs)
             flip = _find(inputs, 'flip').value
             auto_wall = _find(inputs, 'autoWall').value
             build(design, body, cut, pts, params, flip, auto_wall,
-                  _find(inputs, 'projPts').value, _find(inputs, 'bothSides').value)
+                  _find(inputs, 'projPts').value, _find(inputs, 'bothSides').value, cuts)
         except Exception as e:
             msg = str(e) if isinstance(e, UserError) else traceback.format_exc()
             _ui.messageBox('Не удалось построить защёлки:\n\n' + msg +
@@ -354,7 +359,7 @@ def _outer_normal(body, d, p):
     return q, n
 
 
-def _resolve_cut_tool(design, comp, body, cut_ent):
+def _resolve_cut_tool(design, comp, body, cut_ent, cuts=None):
     """Возвращает (инструмент для Split Body, список граней для нормалей, созданная поверхность|None)."""
     if adsk.fusion.ConstructionPlane.cast(cut_ent):
         return cut_ent, [], None
@@ -364,7 +369,13 @@ def _resolve_cut_tool(design, comp, body, cut_ent):
     if hasattr(cut_ent, 'parentSketch'):  # эскизная кривая -> поверхность, выдавленная перпендикулярно эскизу
         bb = body.boundingBox
         size = bb.minPoint.distanceTo(bb.maxPoint) * 2.0
-        path = comp.features.createPath(cut_ent, True)
+        if cuts and len(cuts) > 1:      # несколько выбранных линий -> один путь
+            coll = adsk.core.ObjectCollection.create()
+            for c in cuts:
+                coll.add(c)
+            path = comp.features.createPath(coll, False)
+        else:                           # одна линия: Fusion сам подтянет связанную цепочку
+            path = comp.features.createPath(cut_ent, True)
         exts = comp.features.extrudeFeatures
         ei = exts.createInput(path, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
         ei.isSolid = False
@@ -481,7 +492,7 @@ def _project_to_walls(comp, body, cut_ent, p, both):
     return [min(cands, key=lambda h: p.distanceTo(h))]
 
 
-def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both=False):
+def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both=False, cuts=None):
     if design is None or design.designType != adsk.fusion.DesignTypes.ParametricDesignType:
         raise UserError('Включите историю (параметрический режим): Capture Design History.')
     if body.assemblyContext is not None:
@@ -494,7 +505,7 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both
     surf = None
     try:
         # 1. Кадры защёлок (до разреза, по исходному телу)
-        tool, faces, surf = _resolve_cut_tool(design, comp, body, cut_ent)
+        tool, faces, surf = _resolve_cut_tool(design, comp, body, cut_ent, cuts)
 
         # Режим «точки на кривой»: от точки на кривой идём по оси выдавливания к стенкам тела
         if proj and hasattr(cut_ent, 'parentSketch'):
