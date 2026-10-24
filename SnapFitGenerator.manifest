@@ -6,7 +6,7 @@
     "description": {
         "": "Разрез корпуса и генерация снэп-фит защёлок под FDM-печать (PLA / PETG / ABS)"
     },
-    "version": "0.1.0",
+    "version": "0.2.0",
     "runOnStartup": false,
     "supportedOS": "windows|mac",
     "editEnabled": true
