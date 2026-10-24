@@ -1,0 +1,13 @@
+{
+    "autodeskProduct": "Fusion",
+    "type": "addin",
+    "id": "6f1c1b7e-3f0a-4d51-9a6b-5d2f0c8e7a11",
+    "author": "SnapFit",
+    "description": {
+        "": "Разрез корпуса и генерация снэп-фит защёлок под FDM-печать (PLA / PETG / ABS)"
+    },
+    "version": "0.1.0",
+    "runOnStartup": false,
+    "supportedOS": "windows|mac",
+    "editEnabled": true
+}
