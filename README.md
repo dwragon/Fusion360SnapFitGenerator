@@ -19,7 +19,7 @@
 ## Установка
 
 1. Скопируй папку `SnapFitGenerator` в папку аддинов Fusion:
-   - Windows: `%appdata%\Autodesk\Autodesk Fusion 360\API\AddIns`
+   - Windows: `C:\Users\Username\AppData\Roaming\Autodesk\FusionAddins`
    - macOS: `~/Library/Application Support/Autodesk/Autodesk Fusion 360/API/AddIns`
 2. В Fusion нажми **Shift+S** (Scripts and Add-Ins), вкладка **Add-Ins**. Если аддина нет в списке, добавь его кнопкой `+` → *Script or add-in from device*.
 3. Включи тумблер **Run** (и **Run on Startup**, если нужно).
