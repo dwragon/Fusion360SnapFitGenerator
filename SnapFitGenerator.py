@@ -6,6 +6,7 @@ Snap-Fit Generator для Fusion 360.
 Аддин делит тело на две половины и в каждой точке строит консольную защёлку
 (балка с крючком на одной половине + канал и окно на другой).
 """
+import importlib.util
 import math
 import os
 import sys
@@ -14,8 +15,23 @@ import traceback
 import adsk.core
 import adsk.fusion
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import snapfit_core as core  # noqa: E402
+def _load_core():
+    """
+    Грузим snapfit_core.py напрямую из папки аддина под уникальным именем.
+    Все аддины Fusion живут в одном процессе Python и делят sys.modules: обычный
+    'import snapfit_core' может вернуть кэш старой версии или модуль из другой копии аддина.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snapfit_core.py')
+    name = 'snapfit_generator_core'
+    sys.modules.pop(name, None)
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod  # нужно для dataclass
+    spec.loader.exec_module(mod)
+    return mod
+
+
+core = _load_core()
 
 CMD_ID = 'SnapFitGeneratorCmd'
 PANEL_ID = 'SolidCreatePanel'
@@ -155,6 +171,14 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             s.addSelectionFilter(sc.Vertices)
             s.setSelectionLimits(1, 0)
 
+            b = inputs.addBoolValueInput('projPts', 'Режим кривой: точки на кривой, стенки найти самому',
+                                         True, '', True)
+            b.tooltip = 'Для эскизной кривой реза'
+            b.tooltipDescription = ('Ставьте точки прямо на кривую в эскизе. Аддин пойдёт от точки '
+                                    'перпендикулярно плоскости эскиза и найдёт наружную стенку тела. '
+                                    'Точки, уже лежащие на стенке, остаются как есть.')
+            inputs.addBoolValueInput('bothSides', 'Защёлки на обеих противоположных стенках', True, '', False)
+
             dd = inputs.addDropDownCommandInput(
                 'material', 'Материал печати', adsk.core.DropDownStyles.TextListDropDownStyle)
             for name in core.MATERIALS:
@@ -244,7 +268,8 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             params = read_params(inputs)
             flip = _find(inputs, 'flip').value
             auto_wall = _find(inputs, 'autoWall').value
-            build(design, body, cut, pts, params, flip, auto_wall)
+            build(design, body, cut, pts, params, flip, auto_wall,
+                  _find(inputs, 'projPts').value, _find(inputs, 'bothSides').value)
         except Exception as e:
             msg = str(e) if isinstance(e, UserError) else traceback.format_exc()
             _ui.messageBox('Не удалось построить защёлки:\n\n' + msg +
@@ -426,7 +451,37 @@ def _combine(comp, target, tool_body, operation):
     comp.features.combineFeatures.add(ci)
 
 
-def build(design, body, cut_ent, pts, P, flip, auto_wall=False):
+def _far_hit(comp, body, p, v):
+    """Самая дальняя точка пересечения луча p+v с гранями тела (для полого корпуса это наружная стенка)."""
+    hits = adsk.core.ObjectCollection.create()
+    ents = comp.findBRepUsingRay(p, v, adsk.fusion.BRepEntityTypes.BRepFaceEntityType, -1.0, False, hits)
+    best, bd = None, -1.0
+    if ents:
+        for i in range(min(ents.count, hits.count)):
+            f = adsk.fusion.BRepFace.cast(ents.item(i))
+            if f and f.body.entityToken == body.entityToken:
+                d = p.distanceTo(hits.item(i))
+                if d > bd:
+                    best, bd = hits.item(i), d
+    return best
+
+
+def _project_to_walls(comp, body, cut_ent, p, both):
+    """Точка на кривой -> наружные стенки тела по нормали к плоскости эскиза (в обе стороны)."""
+    ok, o, xa, ya, za = cut_ent.parentSketch.transform.getAsCoordinateSystem()
+    cands = []
+    for s in (1.0, -1.0):
+        hit = _far_hit(comp, body, p, _v(za.x * s, za.y * s, za.z * s))
+        if hit:
+            cands.append(hit)
+    if not cands:
+        return []
+    if both:
+        return cands
+    return [min(cands, key=lambda h: p.distanceTo(h))]
+
+
+def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both=False):
     if design is None or design.designType != adsk.fusion.DesignTypes.ParametricDesignType:
         raise UserError('Включите историю (параметрический режим): Capture Design History.')
     if body.assemblyContext is not None:
@@ -440,6 +495,23 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False):
     try:
         # 1. Кадры защёлок (до разреза, по исходному телу)
         tool, faces, surf = _resolve_cut_tool(design, comp, body, cut_ent)
+
+        # Режим «точки на кривой»: от точки на кривой идём по оси выдавливания к стенкам тела
+        if proj and hasattr(cut_ent, 'parentSketch'):
+            new_pts = []
+            for p in pts:
+                if min(c[0] for c in _closest(body.faces, p)) < 0.05:   # точка уже на стенке
+                    new_pts.append(p)
+                    continue
+                found = _project_to_walls(comp, body, cut_ent, p, both)
+                if not found:
+                    raise UserError('От точки на кривой не найдена стенка тела вдоль оси '
+                                    'выдавливания. Проверьте положение точки.')
+                new_pts += found
+            if len(new_pts) != len(pts):
+                notes.append('Точки на кривой: найдено мест для защёлок - %d.' % len(new_pts))
+            pts = new_pts
+
         frames = []
         walls = []
         for p in pts:
