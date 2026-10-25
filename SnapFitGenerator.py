@@ -36,6 +36,8 @@ core = _load_core()
 CMD_ID = 'SnapFitGeneratorCmd'
 PANEL_ID = 'SolidCreatePanel'
 CM = 0.1  # мм -> см (внутренние единицы Fusion)
+MODE_CUT = 'Разрезать тело (плоскость / кривая)'
+MODE_SPLIT_DONE = 'Тела уже разделены (выбрать два тела)'
 
 _app = None
 _ui = None
@@ -85,9 +87,16 @@ def _set_mm(inputs, cid, mm):
     _find(inputs, cid).value = mm * CM
 
 
+def _type_info(inputs):
+    return core.TYPES.get(_find(inputs, 'ctype').selectedItem.name, {})
+
+
 def read_params(inputs):
     auto = _find(inputs, 'autoLen').value
+    ti = _type_info(inputs)
     return core.Params(
+        overlay=(ti.get('style') == 'overlay'),
+        shape=ti.get('shape', 'straight'),
         arm_t=_mm(inputs, 'arm_t'),
         engage=_mm(inputs, 'engage'),
         arm_w=_mm(inputs, 'arm_w'),
@@ -121,6 +130,17 @@ def apply_type(inputs, name):
     t = core.TYPES.get(name)
     if t:
         _find(inputs, 'ret').value = math.radians(t['ret'])
+        is_u = t.get('shape') == 'u'
+        _find(inputs, 'taper').isEnabled = not is_u      # у U-образной ветви сечение постоянное
+
+
+def apply_mode(inputs):
+    """Показать поля выбранного режима: разрезать тело или использовать готовые тела."""
+    split_mode = _find(inputs, 'mode').selectedItem.name == MODE_SPLIT_DONE
+    _find(inputs, 'cut').isVisible = not split_mode
+    _find(inputs, 'projPts').isVisible = not split_mode
+    _find(inputs, 'bothSides').isVisible = not split_mode
+    _find(inputs, 'body2').isVisible = split_mode
 
 
 def update_info(inputs):
@@ -151,9 +171,20 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             sc = adsk.core.SelectionCommandInput
             vi = adsk.core.ValueInput
 
-            s = inputs.addSelectionInput('body', 'Тело', 'Тело, которое нужно разрезать')
+            md = inputs.addDropDownCommandInput(
+                'mode', 'Режим', adsk.core.DropDownStyles.TextListDropDownStyle)
+            md.listItems.add(MODE_CUT, True)
+            md.listItems.add(MODE_SPLIT_DONE, False)
+
+            s = inputs.addSelectionInput('body', 'Тело', 'Тело, которое нужно разрезать '
+                                         '(в режиме готовых тел - первое из двух тел)')
             s.addSelectionFilter(sc.SolidBodies)
             s.setSelectionLimits(1, 1)
+
+            s = inputs.addSelectionInput('body2', 'Второе тело', 'Вторая половина корпуса')
+            s.addSelectionFilter(sc.SolidBodies)
+            s.setSelectionLimits(0, 1)       # обязательность проверяет ValidateHandler
+            s.isVisible = False
 
             s = inputs.addSelectionInput(
                 'cut', 'Плоскость / кривая реза',
@@ -161,11 +192,12 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             s.addSelectionFilter(sc.ConstructionPlanes)
             s.addSelectionFilter(sc.Faces)
             s.addSelectionFilter(sc.SketchCurves)
-            s.setSelectionLimits(1, 0)   # можно выбрать несколько линий эскиза, как в Split Body
+            s.setSelectionLimits(0, 0)   # можно выбрать несколько линий эскиза; обязательность - в ValidateHandler
 
             s = inputs.addSelectionInput(
                 'pts', 'Точки защёлок',
-                'Точки на внешней поверхности стенки, лежащие на линии реза')
+                'Точки на поверхности стенки у линии реза. Балка вырастет на той половине, '
+                'на которой лежит точка (кнопка «Реверс» меняет половины)')
             s.addSelectionFilter(sc.SketchPoints)
             s.addSelectionFilter(sc.ConstructionPoints)
             s.addSelectionFilter(sc.Vertices)
@@ -213,9 +245,10 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             g.addBoolValueInput('autoLen', 'Длина балки по расчёту', True, '', True)
             g.addValueInput('length', 'Длина балки', 'mm', vi.createByReal(10.0 * CM))
             g.addBoolValueInput('through', 'Сквозное окно в стенке', True, '', True)
-            g.addBoolValueInput('flip', 'Балка на другой половине', True, '', False)
+            g.addBoolValueInput('flip', 'Реверс: балка на другой половине', True, '', False)
 
             inputs.addTextBoxCommandInput('info', 'Расчёт', '', 12, True)
+            apply_type(inputs, core.DEFAULT_TYPE)
             update_info(inputs)
 
             for cls, ev in ((ExecuteHandler, cmd.execute),
@@ -236,6 +269,8 @@ class InputChangedHandler(adsk.core.InputChangedEventHandler):
                 apply_preset(inputs, _find(inputs, 'material').selectedItem.name)
             elif args.input.id == 'ctype':
                 apply_type(inputs, _find(inputs, 'ctype').selectedItem.name)
+            elif args.input.id == 'mode':
+                apply_mode(inputs)
             update_info(inputs)
         except Exception:
             pass
@@ -245,9 +280,13 @@ class ValidateHandler(adsk.core.ValidateInputsEventHandler):
     def notify(self, args):
         try:
             i = args.inputs
+            split_mode = _find(i, 'mode').selectedItem.name == MODE_SPLIT_DONE
             ok = (_find(i, 'body').selectionCount == 1 and
-                  _find(i, 'cut').selectionCount >= 1 and
                   _find(i, 'pts').selectionCount >= 1)
+            if split_mode:
+                ok = ok and _find(i, 'body2').selectionCount == 1
+            else:
+                ok = ok and _find(i, 'cut').selectionCount >= 1
             for cid in ('wall', 'arm_t', 'arm_w', 'engage', 'clearance', 'length'):
                 if _find(i, cid).value <= 0:
                     ok = False
@@ -262,17 +301,21 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
         try:
             inputs = args.command.commandInputs
             body = adsk.fusion.BRepBody.cast(_find(inputs, 'body').selection(0).entity)
+            pts_in = _find(inputs, 'pts')
+            pts = [_point_of(pts_in.selection(k).entity) for k in range(pts_in.selectionCount)]
+            params = read_params(inputs)
+            flip = _find(inputs, 'flip').value
+            auto_wall = _find(inputs, 'autoWall').value
+            if _find(inputs, 'mode').selectedItem.name == MODE_SPLIT_DONE:
+                body2 = adsk.fusion.BRepBody.cast(_find(inputs, 'body2').selection(0).entity)
+                build_split(design, body, body2, pts, params, flip, auto_wall)
+                return
             cut_in = _find(inputs, 'cut')
             cuts = [cut_in.selection(k).entity for k in range(cut_in.selectionCount)]
             cut = cuts[0]
             if len(cuts) > 1 and not all(hasattr(c, 'parentSketch') for c in cuts):
                 raise UserError('Несколько объектов реза можно выбирать только для линий эскиза. '
                                 'Плоскость или грань выбирайте по одной.')
-            pts_in = _find(inputs, 'pts')
-            pts = [_point_of(pts_in.selection(k).entity) for k in range(pts_in.selectionCount)]
-            params = read_params(inputs)
-            flip = _find(inputs, 'flip').value
-            auto_wall = _find(inputs, 'autoWall').value
             build(design, body, cut, pts, params, flip, auto_wall,
                   _find(inputs, 'projPts').value, _find(inputs, 'bothSides').value, cuts)
         except Exception as e:
@@ -453,9 +496,11 @@ def _make_tool(comp, frame, poly_mm, width_mm):
     return tool_body
 
 
-def _combine(comp, target, tool_body, operation):
+def _combine(comp, target, tool_bodies, operation):
+    """Объединение/вычитание сразу нескольких тел-инструментов одной операцией таймлайна."""
     tools = adsk.core.ObjectCollection.create()
-    tools.add(tool_body)
+    for t in tool_bodies:
+        tools.add(t)
     ci = comp.features.combineFeatures.createInput(target, tools)
     ci.operation = operation
     ci.isKeepToolBodies = False
@@ -492,19 +537,191 @@ def _project_to_walls(comp, body, cut_ent, p, both):
     return [min(cands, key=lambda h: p.distanceTo(h))]
 
 
-def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both=False, cuts=None):
+SIDE_EPS = 0.005    # 0.05 мм: ближе этого точка считается лежащей прямо на линии реза
+GROUP_NAME = 'Snap-Fit'
+
+
+def _inside(body, pt, include_boundary=False):
+    pc = body.pointContainment(pt)
+    if pc == adsk.fusion.PointContainment.PointInsidePointContainment:
+        return True
+    return include_boundary and pc == adsk.fusion.PointContainment.PointOnPointContainment
+
+
+def _near_faces(body, p, tol=0.002):
+    """Ближайшие к точке грани тела: (мин. расстояние, [(грань, точка на ней, наружная нормаль)])."""
+    cands = _closest(body.faces, p)
+    mind = min(c[0] for c in cands)
+    out = []
+    for dist, f, q in cands:
+        if dist <= mind + tol:
+            n = _unit(_face_normal_at(f, q))
+            if _inside(body, _pt_add(q, n, 0.01)):
+                n.scaleBy(-1.0)
+            out.append((f, q, n))
+    return mind, out
+
+
+def _perp_unit(N, D, err):
+    """Составляющая N, перпендикулярная D, единичная."""
+    dn = N.dotProduct(D)
+    w = _v(N.x - D.x * dn, N.y - D.y * dn, N.z - D.z * dn)
+    if w.length < 0.3:
+        raise UserError(err)
+    return _unit(w)
+
+
+def _frame_cut(body, p, cut_ent, faces, flip):
+    """
+    Кадр защёлки для режима разреза: (anchor, D, N, q_out, на_линии_реза).
+    D направлен в сторону половины, на которой лежит точка (там вырастет балка).
+    """
+    q_out, _ = _outer_normal(body, _v(0, 0, 0), p)           # предварительно: ближайшая точка поверхности
+    q_cut, d = _cut_frame(cut_ent, faces, q_out)
+    q_out, n_raw = _outer_normal(body, d, p)
+    N = _perp_unit(_v(n_raw.x, n_raw.y, n_raw.z), d,
+                   'В одной из точек стенка параллельна плоскости реза: защёлку там построить нельзя.')
+    sd = _v(q_out.x - q_cut.x, q_out.y - q_cut.y, q_out.z - q_cut.z).dotProduct(d)
+    D = d.copy()
+    if sd < -SIDE_EPS:
+        D.scaleBy(-1.0)
+    if flip:
+        D.scaleBy(-1.0)
+    return q_cut, D, N, q_out, abs(sd) <= SIDE_EPS
+
+
+def _frame_split(body_1, body_2, p):
+    """
+    Кадр защёлки для двух готовых тел: (тело_с_балкой, тело_с_окном, anchor, D, N, q_out).
+    Балка - на теле, на поверхности которого лежит точка; D направлен от стыка в сторону этого тела.
+    """
+    m1, f1 = _near_faces(body_1, p)
+    m2, f2 = _near_faces(body_2, p)
+    if min(m1, m2) > 0.3:
+        raise UserError('Точка лежит дальше 3 мм от обоих тел. Поставьте её на поверхность одного из тел.')
+    if m2 + 0.002 < m1:
+        beam, other, faces = body_2, body_1, f2
+    else:
+        beam, other, faces = body_1, body_2, f1
+
+    # грань стыка: её наружная нормаль ведёт внутрь второго тела
+    contact = None
+    for f, q, n in faces:
+        w = None
+        rest = [t for t in faces if t[0] != f]
+        if rest:
+            w = min(rest, key=lambda t: abs(t[2].dotProduct(n)))[2]
+        test = _pt_add(q, n, 0.02)
+        if w is not None:
+            test = _pt_add(test, w, -0.02)       # чуть вглубь стенки, чтобы не попасть на её наружную грань
+        if _inside(other, test, include_boundary=True):
+            contact = (q, n)
+            break
+    if contact is None:                          # тела разнесены: идём к ближайшей точке второго тела
+        r = _app.measureManager.measureMinimumDistance(p, other)
+        v = _v(r.positionTwo.x - p.x, r.positionTwo.y - p.y, r.positionTwo.z - p.z)
+        if v.length > 1e-6:
+            v = _unit(v)
+            f, q, n = max(faces, key=lambda t: t[2].dotProduct(v))
+            if n.dotProduct(v) > 0.3:
+                contact = (q, n)
+    if contact is None:
+        raise UserError('Не удалось найти стык двух тел у точки. Тела должны касаться друг друга '
+                        'или находиться рядом, а точка лежать на краю стыка.')
+    q_c, n_c = contact
+    D = _v(-n_c.x, -n_c.y, -n_c.z)
+    f, q_out, n_w = min(faces, key=lambda t: abs(t[2].dotProduct(D)))
+    N = _perp_unit(n_w, D, 'В одной из точек стенка параллельна стыку тел: защёлку там построить нельзя.')
+    return beam, other, q_c, D, N, q_out
+
+
+def _apply_auto_wall(P, walls, notes):
+    good = [w for w in walls if w]
+    if len(good) == len(walls) and good:
+        P.wall = min(good)
+        if max(good) - min(good) > 0.3:
+            notes.append('Толщина стенки в точках разная (%.1f-%.1f мм), взята минимальная.'
+                         % (min(good), max(good)))
+        notes.append('Толщина стенки по модели: %.2f мм.' % P.wall)
+    else:
+        notes.append('Не удалось измерить стенку по модели, использовано значение из поля '
+                     '(%.1f мм). Проверьте его.' % P.wall)
+
+
+def _place_snaps(design, comp, frames, P, res):
+    """
+    frames: [(anchor, D, N, body_a, body_b)]; body_a - тело с балкой, body_b - тело с окном.
+    На каждую защёлку: одно объединение (балка + штифты) и одно вычитание (окно + гнёзда).
+    """
+    arm_poly = core.arm_polygon(P, res)
+    pocket_poly = core.pocket_polygon(P, res)
+    use_pins = P.pins and res.pins_ok
+    JOIN = adsk.fusion.FeatureOperations.JoinFeatureOperation
+    CUT = adsk.fusion.FeatureOperations.CutFeatureOperation
+    for anchor, D, N, body_a, body_b in frames:
+        frame = (anchor, D, N)
+        arms = [_make_tool(comp, frame, arm_poly, P.arm_w)]
+        pockets = [_make_tool(comp, frame, pocket_poly, P.arm_w + 2 * P.clearance)]
+        if use_pins:
+            T = _unit(D.crossProduct(N))
+            off = core.pin_offset(P)
+            for sgn in (1.0, -1.0):
+                fr = (_pt_add(anchor, T, sgn * off * CM), D, N)
+                arms.append(_make_tool(comp, fr, core.pin_polygon(P), core.PIN_W))
+                pockets.append(_make_tool(comp, fr, core.pin_pocket_polygon(P),
+                                          core.PIN_W + 2 * P.clearance))
+        _combine(comp, _fresh(design, body_a), [_fresh(design, t) for t in arms], JOIN)
+        _combine(comp, _fresh(design, body_b), [_fresh(design, t) for t in pockets], CUT)
+
+
+def _group_timeline(design, start):
+    """Сворачивает все операции аддина в одну группу таймлайна. Ошибки группировки не критичны."""
+    try:
+        tl = design.timeline
+        end = tl.markerPosition - 1
+        if end > start:
+            g = tl.timelineGroups.add(start, end)
+            g.name = GROUP_NAME
+            g.isCollapsed = True
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _rollback(design, start):
+    tl = design.timeline
+    for i in range(tl.markerPosition - 1, start - 1, -1):
+        try:
+            tl.item(i).entity.deleteMe()
+        except Exception:
+            pass
+
+
+def _report(count, res, notes):
+    msg = 'Готово: %d защёлк(и), длина балки %.1f мм.' % (count, res.length)
+    if notes:
+        msg += '\n' + '\n'.join(notes)
+    if res.warnings:
+        msg += '\n\nПредупреждения:\n- ' + '\n- '.join(res.warnings)
+    _ui.messageBox(msg)
+
+
+def _check_design(design, *bodies):
     if design is None or design.designType != adsk.fusion.DesignTypes.ParametricDesignType:
         raise UserError('Включите историю (параметрический режим): Capture Design History.')
-    if body.assemblyContext is not None:
-        raise UserError('Выберите тело корневого компонента (или активируйте нужный компонент).')
+    for b in bodies:
+        if b.assemblyContext is not None:
+            raise UserError('Выберите тело корневого компонента (или активируйте нужный компонент).')
 
+
+def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both=False, cuts=None):
+    """Режим «разрезать тело»: разрез по плоскости/кривой и защёлки в точках."""
+    _check_design(design, body)
     notes = []
     comp = body.parentComponent
-    tl = design.timeline
-    start = tl.count
-    surf = None
+    start = design.timeline.markerPosition
     try:
-        # 1. Кадры защёлок (до разреза, по исходному телу)
         tool, faces, surf = _resolve_cut_tool(design, comp, body, cut_ent, cuts)
 
         # Режим «точки на кривой»: от точки на кривой идём по оси выдавливания к стенкам тела
@@ -523,41 +740,20 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both
                 notes.append('Точки на кривой: найдено мест для защёлок - %d.' % len(new_pts))
             pts = new_pts
 
-        frames = []
-        walls = []
+        # 1. Кадры защёлок (до разреза, по исходному телу)
+        frames0, walls, on_cut = [], [], 0
         for p in pts:
-            q_out, n_raw = _outer_normal(body, _v(0, 0, 0), p)  # предварительная нормаль
-            q_cut, d = _cut_frame(cut_ent, faces, q_out)
-            q_out, n_raw = _outer_normal(body, d, p)
-            N = _v(n_raw.x, n_raw.y, n_raw.z)
-            dn = N.dotProduct(d)
-            N = _v(N.x - d.x * dn, N.y - d.y * dn, N.z - d.z * dn)
-            if N.length < 0.3:
-                raise UserError('В одной из точек стенка параллельна плоскости реза: '
-                                'защёлку там построить нельзя.')
-            N = _unit(N)
-            D = d.copy()
-            if flip:
-                D.scaleBy(-1.0)
-            frames.append((q_cut, D, N))
+            anchor, D, N, q_out, onp = _frame_cut(body, p, cut_ent, faces, flip)
+            on_cut += 1 if onp else 0
+            frames0.append((anchor, D, N))
             if auto_wall:
                 walls.append(_measure_wall(comp, q_out, N))
-
         if auto_wall:
-            good = [w for w in walls if w]
-            if len(good) == len(walls) and good:
-                P.wall = min(good)
-                if max(good) - min(good) > 0.3:
-                    notes.append('Толщина стенки в точках разная (%.1f-%.1f мм), взята минимальная.'
-                                 % (min(good), max(good)))
-                notes.append('Толщина стенки по модели: %.2f мм.' % P.wall)
-            else:
-                notes.append('Не удалось измерить стенку по модели, использовано значение из поля '
-                             '(%.1f мм). Проверьте его.' % P.wall)
-
+            _apply_auto_wall(P, walls, notes)
+        if on_cut:
+            notes.append('Точек на самой линии реза: %d. Для них сторона балки не определяется по '
+                         'положению точки; если балка выросла не там, включите «Реверс».' % on_cut)
         res = core.compute(P)
-        arm_poly = core.arm_polygon(P, res)
-        pocket_poly = core.pocket_polygon(P, res)
 
         # 2. Разрез
         sbs = comp.features.splitBodyFeatures
@@ -572,56 +768,60 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both
         def side_body(pt):
             for h in halves:
                 h = _fresh(design, h)
-                if h.pointContainment(pt) == adsk.fusion.PointContainment.PointInsidePointContainment:
+                if _inside(h, pt):
                     return h
             return None
 
-        # 3. Защёлки
-        for idx, (anchor, D, N) in enumerate(frames):
+        # 3. Защёлки: тело с балкой - с той стороны, куда смотрит D
+        frames = []
+        for idx, (anchor, D, N) in enumerate(frames0):
             mid = _pt_add(anchor, N, -P.wall * 0.5 * CM)
-            body_a = side_body(_pt_add(mid, D, 0.3 * CM))     # половина с балкой
-            body_b = side_body(_pt_add(mid, D, -0.3 * CM))    # половина с окном
+            body_a = side_body(_pt_add(mid, D, 0.3 * CM))
+            body_b = side_body(_pt_add(mid, D, -0.3 * CM))
             if body_a is None or body_b is None or body_a.entityToken == body_b.entityToken:
                 raise UserError('Точка %d: не удалось определить половины корпуса около защёлки. '
                                 'Проверьте толщину стенки и положение точки.' % (idx + 1))
-            frame = (anchor, D, N)
+            frames.append((anchor, D, N, body_a, body_b))
+        _place_snaps(design, comp, frames, P, res)
 
-            # балка с крючком -> половина A
-            arm = _make_tool(comp, frame, arm_poly, P.arm_w)
-            _combine(comp, _fresh(design, body_a), arm,
-                     adsk.fusion.FeatureOperations.JoinFeatureOperation)
-
-            # канал и окно -> половина B
-            pocket = _make_tool(comp, frame, pocket_poly, P.arm_w + 2 * P.clearance)
-            _combine(comp, _fresh(design, body_b), pocket,
-                     adsk.fusion.FeatureOperations.CutFeatureOperation)
-
-            # направляющие штифты по бокам балки: штифт на половине A, гнездо на половине B
-            if P.pins:
-                T = _unit(D.crossProduct(N))
-                off = core.pin_offset(P)
-                for sgn in (1.0, -1.0):
-                    fr = (_pt_add(anchor, T, sgn * off * CM), D, N)
-                    pin = _make_tool(comp, fr, core.pin_polygon(P), core.PIN_W)
-                    _combine(comp, _fresh(design, body_a), pin,
-                             adsk.fusion.FeatureOperations.JoinFeatureOperation)
-                    hole = _make_tool(comp, fr, core.pin_pocket_polygon(P),
-                                      core.PIN_W + 2 * P.clearance)
-                    _combine(comp, _fresh(design, body_b), hole,
-                             adsk.fusion.FeatureOperations.CutFeatureOperation)
-
-        msg = 'Готово: %d защёлк(и), длина балки %.1f мм.' % (len(frames), res.length)
-        if notes:
-            msg += '\n' + '\n'.join(notes)
-        if res.warnings:
-            msg += '\n\nПредупреждения:\n- ' + '\n- '.join(res.warnings)
-        _ui.messageBox(msg)
+        if _group_timeline(design, start):
+            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
+        _report(len(frames), res, notes)
     except Exception:
-        for i in range(tl.count - 1, start - 1, -1):
-            try:
-                tl.item(i).entity.deleteMe()
-            except Exception:
-                pass
+        _rollback(design, start)
+        raise
+
+
+def build_split(design, body_1, body_2, pts, P, flip, auto_wall=False):
+    """Режим «тела уже разделены»: два тела, точки на одном из них, разрез не делается."""
+    _check_design(design, body_1, body_2)
+    if body_1.entityToken == body_2.entityToken:
+        raise UserError('Выберите два разных тела.')
+    comp = body_1.parentComponent
+    if body_2.parentComponent.entityToken != comp.entityToken:
+        raise UserError('Оба тела должны лежать в одном компоненте.')
+    notes = []
+    start = design.timeline.markerPosition
+    try:
+        frames, walls = [], []
+        for p in pts:
+            beam, other, anchor, D, N, q_out = _frame_split(body_1, body_2, p)
+            if flip:
+                D.scaleBy(-1.0)
+                beam, other = other, beam
+            frames.append((anchor, D, N, beam, other))
+            if auto_wall:
+                walls.append(_measure_wall(comp, q_out, N))
+        if auto_wall:
+            _apply_auto_wall(P, walls, notes)
+        res = core.compute(P)
+        _place_snaps(design, comp, frames, P, res)
+
+        if _group_timeline(design, start):
+            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
+        _report(len(frames), res, notes)
+    except Exception:
+        _rollback(design, start)
         raise
 
 
