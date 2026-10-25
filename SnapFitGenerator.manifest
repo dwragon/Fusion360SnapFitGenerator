@@ -6,7 +6,7 @@
     "description": {
         "": "Разрез корпуса, снэп-фит защёлки, вставные вилки и стойки для печатных плат под FDM-печать (PLA / PETG / ABS / ASA / PA)"
     },
-    "version": "1.0.0",
+    "version": "1.0.1",
     "runOnStartup": false,
     "supportedOS": "windows|mac",
     "editEnabled": true

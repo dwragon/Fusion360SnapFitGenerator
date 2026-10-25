@@ -954,6 +954,26 @@ def _make_tool(comp, frame, poly_mm, width_mm, off_t=0.0):
     return tool_body
 
 
+def _revolve_full(comp, prof, axis_line):
+    """
+    Полный оборот (360 градусов) профиля вокруг оси. Угол в радианах 2*pi Fusion переводит в градусы
+    с погрешностью и может получить чуть больше 360, поэтому сначала пробуем строкой '360 deg'.
+    """
+    revs = comp.features.revolveFeatures
+    errors = []
+    for make in (lambda: adsk.core.ValueInput.createByString('360 deg'),
+                 lambda: adsk.core.ValueInput.createByReal(math.radians(360.0)),
+                 lambda: adsk.core.ValueInput.createByString('359.99 deg')):
+        try:
+            ri = revs.createInput(prof, axis_line, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+            ri.setAngleExtent(False, make())
+            return revs.add(ri).bodies.item(0)
+        except Exception as e:
+            errors.append(str(e).strip().splitlines()[-1] if str(e).strip() else repr(e))
+    raise UserError('Fusion не смог выполнить вращение профиля (Revolve): %s. Проверьте, что ребро кольца '
+                    'лежит на цилиндре, а размеры воротника помещаются в стенку.' % '; '.join(errors[:2]))
+
+
 def _make_ring(comp, anchor, D, U, R_mm, poly_mm):
     """
     Тело вращения: полигон (d, n) превращается в профиль (d, R + n) и вращается на 360 градусов вокруг
@@ -977,10 +997,7 @@ def _make_ring(comp, anchor, D, U, R_mm, poly_mm):
     axis = sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(d_lo, 0.0), to_sk(d_hi, 0.0))
     axis.isConstruction = True
 
-    revs = comp.features.revolveFeatures
-    ri = revs.createInput(prof, axis, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-    ri.setAngleExtent(False, adsk.core.ValueInput.createByReal(2.0 * math.pi))
-    body = revs.add(ri).bodies.item(0)
+    body = _revolve_full(comp, prof, axis)
     _move_body(comp, body, anchor, D, U)
     return body
 
@@ -1515,10 +1532,7 @@ def _make_revolved(comp, anchor, axis, U, poly_mm):
     z_hi = max(z for z, _ in poly_mm) + 2.0
     axis_line = sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(z_lo, 0.0), to_sk(z_hi, 0.0))
     axis_line.isConstruction = True
-    revs = comp.features.revolveFeatures
-    ri = revs.createInput(prof, axis_line, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
-    ri.setAngleExtent(False, adsk.core.ValueInput.createByReal(2.0 * math.pi))
-    body = revs.add(ri).bodies.item(0)
+    body = _revolve_full(comp, prof, axis_line)
     _move_body(comp, body, anchor, axis, U)
     return body
 
