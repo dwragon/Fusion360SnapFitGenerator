@@ -4,9 +4,9 @@
     "id": "6f1c1b7e-3f0a-4d51-9a6b-5d2f0c8e7a11",
     "author": "SnapFit",
     "description": {
-        "": "Разрез корпуса и генерация снэп-фит защёлок под FDM-печать (PLA / PETG / ABS)"
+        "": "Разрез корпуса, снэп-фит защёлки, вставные вилки и стойки для печатных плат под FDM-печать (PLA / PETG / ABS / ASA / PA)"
     },
-    "version": "0.5.1",
+    "version": "1.0.0",
     "runOnStartup": false,
     "supportedOS": "windows|mac",
     "editEnabled": true

@@ -17,11 +17,11 @@ from typing import List, Optional, Tuple
 # деформация ~10-15% от удлинения при разрыве (с запасом на межслойную адгезию),
 # E - модуль для нагрузки ВДОЛЬ слоёв.
 MATERIALS = {
-    'PLA':  dict(arm_t=1.2, engage=0.6, clearance=0.20, strain=1.0, E=3000.0, lead=30.0),
-    'PETG': dict(arm_t=1.6, engage=0.8, clearance=0.25, strain=2.5, E=2000.0, lead=30.0),
-    'ABS':  dict(arm_t=1.6, engage=0.8, clearance=0.30, strain=1.5, E=2100.0, lead=30.0),
-    'ASA':  dict(arm_t=1.6, engage=0.8, clearance=0.30, strain=1.5, E=2000.0, lead=30.0),
-    'PA (нейлон)': dict(arm_t=1.6, engage=1.0, clearance=0.30, strain=4.0, E=1500.0, lead=30.0),
+    'PLA':  dict(arm_t=1.2, engage=0.6, clearance=0.20, strain=1.0, E=3000.0, lead=30.0, hook=0.30),
+    'PETG': dict(arm_t=1.6, engage=0.8, clearance=0.25, strain=2.5, E=2000.0, lead=30.0, hook=0.40),
+    'ABS':  dict(arm_t=1.6, engage=0.8, clearance=0.30, strain=1.5, E=2100.0, lead=30.0, hook=0.35),
+    'ASA':  dict(arm_t=1.6, engage=0.8, clearance=0.30, strain=1.5, E=2000.0, lead=30.0, hook=0.35),
+    'PA (нейлон)': dict(arm_t=1.6, engage=1.0, clearance=0.30, strain=4.0, E=1500.0, lead=30.0, hook=0.50),
 }
 DEFAULT_MATERIAL = 'PETG'
 
@@ -666,3 +666,374 @@ def format_report(p: Params, r: Result) -> str:
     for w in r.warnings:
         lines.append('<font color="#c0392b">⚠ %s</font>' % w)
     return '<br>'.join(lines)
+
+
+# =============================================================================
+# Вставная защёлка («вилка»): отдельная деталь + прорезь в телах
+# =============================================================================
+# Локальные оси: s - поперёк (в плоскости изгиба ветвей), z - вдоль оси вставки.
+# z = 0 - наружная поверхность первого тела, z > 0 - вглубь, z < 0 - над поверхностью (головка).
+PIN_BRIDGE = 1.2        # перемычка головки над дном прорези между ветвями, мм
+PIN_PLAY = 0.1          # осевой зазор между упором крючка и стенкой, мм
+PIN_FLAT = 0.8          # площадка на вершине крючка, мм
+PIN_GAP_EXTRA = 0.3     # запас в просвете между ветвями сверх удвоенного прогиба, мм
+PIN_MIN_GRIP = 1.2      # минимальная толщина зажимаемого пакета, мм
+PIN_MIN_L = 4.0         # минимальная длина ветви, мм
+PIN_MAX_HEAD = 6.0      # выше головка считается слишком высокой (предупреждение), мм
+
+
+@dataclass
+class PinParams:
+    arm_t: float = 1.6          # толщина ветви
+    engage: float = 0.8         # перекрытие крючка над краем прорези (держит пакет)
+    arm_w: float = 6.0          # ширина защёлки вдоль прорези
+    grip: float = 3.0           # толщина зажимаемого пакета (стенка или две стенки подряд)
+    clearance: float = 0.25     # зазор между защёлкой и прорезью
+    strain_pct: float = 2.5
+    E: float = 2000.0
+    lead_deg: float = 30.0
+    ret_deg: float = 60.0
+    length: Optional[float] = None   # длина ветви от дна прорези до вершины крючка; None = авторасчёт
+    head_t: float = 2.0         # минимальная толщина головки
+    head_over: float = 2.0      # вылет головки за прорезь
+
+
+@dataclass
+class PinResult:
+    length: float
+    strain_pct: float
+    hook_h: float               # высота крючка над поверхностью ветви = прогиб при вставке
+    gap: float                  # просвет между ветвями
+    so: float                   # половина ширины вилки (до наружной поверхности ветвей)
+    hs: float                   # половина ширины прорези в телах
+    hf: float                   # половина ширины головки
+    zs: float                   # z дна прорези между ветвями
+    zb: float                   # z начала упорной грани крючка
+    z_apex: float
+    z_end: float
+    lead_len: float
+    ret_len: float
+    head_t: float
+    insertion_force: float
+    removal_force: Optional[float]
+    warnings: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+def compute_pin(p: PinParams) -> PinResult:
+    warns: List[str] = []
+    notes: List[str] = []
+    h = p.engage + p.clearance
+    eps = max(p.strain_pct, 0.01) / 100.0
+    l_min = beam_length(p.arm_t, h, eps, 100.0)
+    lead_len = h / math.tan(math.radians(p.lead_deg))
+    ret_len = 0.0 if p.ret_deg >= 89.5 else h / math.tan(math.radians(p.ret_deg))
+    c = p.clearance
+    zb = p.grip + PIN_PLAY - ret_len * c / h
+    z_apex = zb + ret_len
+    z_end = z_apex + PIN_FLAT + lead_len
+    floor = max(PIN_MIN_L, ret_len + 1.0)
+    if p.length is None:
+        L = max(floor, math.ceil(l_min * 2.0) / 2.0)
+    else:
+        L = max(p.length, floor)
+        if L < l_min - 1e-6:
+            warns.append('Длина ветви меньше расчётной (%.1f мм): деформация выше допустимой.' % l_min)
+    zs = z_apex - L
+    ht = max(p.head_t, PIN_BRIDGE - zs)
+    gap = 2.0 * h + PIN_GAP_EXTRA
+    so = gap / 2.0 + p.arm_t
+    hs = so + c
+    hf = hs + p.head_over
+
+    strain = 1.5 * p.arm_t * h / (L * L) * 100.0                    # K1 = 1/3
+    P = p.E * p.arm_w * p.arm_t ** 3 * h / (4.0 * L ** 3)           # сила на одной ветви
+    ins = 2.0 * _ramp_force(P, p.lead_deg)
+    rem = None if p.ret_deg >= 89.5 else 2.0 * _ramp_force(P, p.ret_deg)
+
+    if p.grip < PIN_MIN_GRIP:
+        warns.append('Пакет тоньше %.1f мм: упор крючка будет слишком хрупким.' % PIN_MIN_GRIP)
+    if ht > PIN_MAX_HEAD:
+        warns.append('Головка выступает на %.1f мм над поверхностью: ветви должны быть длинными. '
+                     'Если мешает, возьмите материал с большей допустимой деформацией, '
+                     'меньший зацеп или более толстый пакет.' % ht)
+    if p.arm_w < 3.0 * 0.4:
+        warns.append('Ширина защёлки меньше 3 линий сопла.')
+    if p.arm_t - 0.0 < 0.8:
+        warns.append('Толщина ветви меньше 0.8 мм (2 линии сопла).')
+    notes.append('Прорезь в телах: %.1f x %.1f мм' % (2.0 * hs, p.arm_w + 2.0 * c))
+    notes.append('За пакетом нужно свободное место не меньше %.1f мм (крючки и концы ветвей)'
+                 % (z_end - p.grip + 0.5))
+    return PinResult(L, strain, h, gap, so, hs, hf, zs, zb, z_apex, z_end, lead_len, ret_len, ht,
+                     ins, rem, warns, notes)
+
+
+def pin_arms_polygon(p: PinParams, r: PinResult) -> Poly:
+    """Вилка: корневой блок под головкой, две ветви с крючками, прорезь между ветвями. Координаты (s, z)."""
+    so, h, g2 = r.so, r.hook_h, r.gap / 2.0
+    pts: Poly = [
+        (-so, -r.head_t), (so, -r.head_t),
+        (so, r.zb), (so + h, r.z_apex), (so + h, r.z_apex + PIN_FLAT), (so, r.z_end),
+        (g2, r.z_end), (g2, r.zs), (-g2, r.zs), (-g2, r.z_end),
+        (-so, r.z_end), (-so - h, r.z_apex + PIN_FLAT), (-so - h, r.z_apex), (-so, r.zb),
+    ]
+    return _dedupe(pts)
+
+
+def pin_head_polygon(p: PinParams, r: PinResult) -> Poly:
+    return [(-r.hf, -r.head_t), (r.hf, -r.head_t), (r.hf, 0.0), (-r.hf, 0.0)]
+
+
+def pin_slot_polygon(p: PinParams, r: PinResult) -> Poly:
+    """Прорезь в телах пакета: от -0.6 над поверхностью до 0.6 мм за пакетом."""
+    return [(-r.hs, -0.6), (r.hs, -0.6), (r.hs, p.grip + 0.6), (-r.hs, p.grip + 0.6)]
+
+
+def pin_to_local(poly: Poly) -> Poly:
+    """(s, z) -> (d, n) системы защёлки: n = -z (наружу), d = s."""
+    return [(s_, -z_) for s_, z_ in poly]
+
+
+def _dedupe(pts: Poly) -> Poly:
+    out: Poly = []
+    for q in pts:
+        if not out or abs(q[0] - out[-1][0]) > 1e-9 or abs(q[1] - out[-1][1]) > 1e-9:
+            out.append(q)
+    if len(out) > 1 and abs(out[0][0] - out[-1][0]) < 1e-9 and abs(out[0][1] - out[-1][1]) < 1e-9:
+        out.pop()
+    return out
+
+
+def format_pin_report(p: PinParams, r: PinResult) -> str:
+    rem = 'не снимается' if r.removal_force is None else ('%.0f Н' % r.removal_force)
+    ins = '∞' if math.isinf(r.insertion_force) else '%.1f Н' % r.insertion_force
+    lines = ['Ветвь: <b>%.1f мм</b> (деформация %.2f %%), высота крючка %.2f мм' % (r.length, r.strain_pct, r.hook_h),
+             'Вилка %.1f x %.1f мм, головка %.1f мм' % (2.0 * r.so + 2.0 * r.hook_h, p.arm_w, r.head_t),
+             'Усилие вставки ~ %s, снятия: %s' % (ins, rem)]
+    lines += r.notes
+    for w in r.warnings:
+        lines.append('<font color="#c0392b">⚠ %s</font>' % w)
+    return '<br>'.join(lines)
+
+
+# =============================================================================
+# Стойка для печатной платы: разрезной штырь с конической головкой
+# =============================================================================
+# Локальные оси профиля вращения: z - вдоль оси стойки (0 = поверхность тела, + наружу), r - радиус.
+METRIC_HOLES = {'M2': 2.2, 'M2.5': 2.7, 'M3': 3.2, 'M4': 4.3, 'M5': 5.3}
+CUSTOM_HOLE = 'Свой диаметр'
+PCB_PLAY = 0.15         # осевой зазор над платой, мм
+PCB_FLAT = 0.6          # площадка на вершине крючка, мм
+PCB_FOOT_H = 0.8        # высота опорного основания стойки, мм
+PCB_EMBED = 0.6         # заход основания в тело (режим «в теле»), мм
+PCB_MIN_WALL = 0.8      # минимальная толщина половинки штыря, мм
+PCB_MIN_PEG_SKIN = 0.8  # остаток стенки под глухим отверстием штыря, мм
+
+
+@dataclass
+class PcbParams:
+    hole_d: float = 3.2         # диаметр отверстия в плате
+    pcb_t: float = 1.6          # толщина платы
+    stand_h: float = 4.0        # высота опоры платы над поверхностью тела
+    collar_d: float = 0.0       # диаметр опорного буртика (0 = авто: отверстие + 3 мм)
+    collar_h: float = 1.2       # высота буртика под платой
+    hook: float = 0.4           # перекрытие крючка над краем отверстия
+    slot_g: float = 0.0         # ширина прорези (0 = авто)
+    clearance: float = 0.25     # диаметральный зазор штыря в отверстии
+    strain_pct: float = 2.5
+    E: float = 2000.0
+    lead_deg: float = 30.0
+    ret_deg: float = 60.0
+    separate: bool = False      # False: стойка в теле; True: отверстие в теле + отдельная стойка на клей
+    peg_d: float = 3.0          # диаметр клеевого штыря
+    peg_l: float = 4.0          # длина клеевого штыря
+    wall: float = 5.0           # толщина стенки под стойкой (для глухого отверстия)
+
+
+@dataclass
+class PcbResult:
+    shaft_r: float
+    hook_r: float
+    collar_r: float
+    slot_g: float
+    neck: bool                  # между основанием и буртиком есть тонкая шейка
+    slot_z0: float              # низ прорези
+    zb: float
+    z_apex: float
+    z_end: float
+    r_tip: float
+    lead_len: float
+    ret_len: float
+    flex_len: float
+    l_min: float
+    strain_pct: float
+    insertion_force: float
+    removal_force: Optional[float]
+    peg_l: float                # длина штыря после ограничения стенкой
+    hole_d_body: float          # диаметр отверстия под штырь в теле
+    warnings: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+def half_disc_props(r: float, g: float):
+    """
+    Половинка штыря: сегмент круга радиуса r правее x = g/2 (прорезь шириной g).
+    Возвращает (площадь, центроид x, момент инерции вокруг центроида, расстояние до дальней волокна).
+    """
+    x0, x1 = g / 2.0, r
+    if x1 - x0 < 1e-6:
+        return 0.0, x0, 0.0, 0.0
+    n = 400
+    h = (x1 - x0) / n
+
+    def w(x):
+        return 2.0 * math.sqrt(max(r * r - x * x, 0.0))
+
+    def simpson(f):
+        s_ = f(x0) + f(x1)
+        for i in range(1, n):
+            s_ += (4 if i % 2 else 2) * f(x0 + i * h)
+        return s_ * h / 3.0
+
+    a = simpson(w)
+    xc = simpson(lambda x: x * w(x)) / a
+    i_c = simpson(lambda x: (x - xc) ** 2 * w(x))
+    c = max(x1 - xc, xc - x0)
+    return a, xc, i_c, c
+
+
+def compute_pcb(p: PcbParams) -> PcbResult:
+    warns: List[str] = []
+    notes: List[str] = []
+    r_h = p.hole_d / 2.0
+    r_s = (p.hole_d - p.clearance) / 2.0
+    r_hk = r_h + p.hook
+    y = p.hook
+    eps = max(p.strain_pct, 0.01) / 100.0
+
+    g_min = 2.0 * y + 0.3
+    g = max(p.slot_g, g_min) if p.slot_g > 0 else max(0.8, g_min)
+    if 0 < p.slot_g < g_min - 1e-6:
+        warns.append('Прорезь %.2f мм уже минимальной %.2f мм: половинки не сойдутся при заведении, '
+                     'взята минимальная.' % (p.slot_g, g_min))
+    if r_s - g / 2.0 < PCB_MIN_WALL:
+        warns.append('Половинки штыря тоньше %.1f мм (%.2f мм): для такого отверстия печатная стойка хрупкая. '
+                     'Уменьшите зацеп или возьмите более гибкий материал.' % (PCB_MIN_WALL, r_s - g / 2.0))
+
+    collar_r = p.collar_d / 2.0 if p.collar_d > 0 else r_h + 1.5
+    if collar_r < r_s + 0.6:
+        collar_r = r_s + 0.6
+        warns.append('Диаметр буртика увеличен до %.1f мм: он должен быть заметно больше штыря.' % (2 * collar_r))
+    collar_h = min(max(p.collar_h, 0.4), p.stand_h)
+    zc0 = p.stand_h - collar_h
+    neck = zc0 > PCB_FOOT_H + 0.2
+
+    lead_len_ang = math.radians(p.lead_deg)
+    r_tip = max(0.4, 0.45 * r_s)
+    lead_len = (r_hk - r_tip) / math.tan(lead_len_ang)
+    h_hook = r_hk - r_s
+    ret_len = 0.0 if p.ret_deg >= 89.5 else h_hook / math.tan(math.radians(p.ret_deg))
+    z_contact = p.stand_h + p.pcb_t + PCB_PLAY
+    zb = z_contact - ret_len * (r_h - r_s) / h_hook
+    z_apex = zb + ret_len
+    z_end = z_apex + PCB_FLAT + lead_len
+    slot_z0 = PCB_FOOT_H if neck else max(PCB_FOOT_H, p.stand_h - 1.0)
+
+    # гибкая длина: шейка + участок над буртиком до вершины крючка (буртик считаем жёстким)
+    l1 = (zc0 - PCB_FOOT_H) if neck else 0.0
+    l2 = z_apex - p.stand_h
+    flex = l1 + l2
+    a, xc, i_c, c = half_disc_props(r_s, g)
+    l_min = math.sqrt(3.0 * y * c / eps) if c > 0 else 0.0
+    strain = 3.0 * y * c / (flex * flex) * 100.0 if flex > 0 else float('inf')
+    P = 3.0 * p.E * i_c * y / flex ** 3 if flex > 0 else 0.0
+    ins = 2.0 * _ramp_force(P, p.lead_deg)
+    rem = None if p.ret_deg >= 89.5 else 2.0 * _ramp_force(P, p.ret_deg)
+
+    if strain > p.strain_pct + 1e-6:
+        tip = ('оставьте шейку: высота буртика должна быть заметно меньше высоты опоры'
+               if not neck else 'увеличьте высоту опоры или уменьшите зацеп')
+        warns.append('Деформация %.1f %% выше допустимой %.1f %%: гибкая длина %.1f мм, нужно не меньше %.1f мм. %s.'
+                     % (strain, p.strain_pct, flex, l_min, tip))
+    if p.stand_h < 1.0:
+        warns.append('Высота опоры меньше 1 мм.')
+
+    peg_l = p.peg_l
+    hole_body = p.peg_d + p.clearance
+    if p.separate:
+        if p.peg_d > 2.0 * collar_r - 1.2:
+            warns.append('Штырь под клей слишком толстый для основания стойки (диаметр основания %.1f мм).'
+                         % (2.0 * collar_r))
+        if p.peg_d < 1.5:
+            warns.append('Штырь под клей тоньше 1.5 мм: он оторвётся при нагрузке.')
+        room = p.wall - PCB_MIN_PEG_SKIN
+        if peg_l > room:
+            if room < 1.5:
+                warns.append('Стенка %.1f мм слишком тонкая для глухого отверстия под штырь.' % p.wall)
+                peg_l = max(room, 0.0)
+            else:
+                notes.append('Длина штыря ограничена стенкой: %.1f мм вместо %.1f мм.' % (room, peg_l))
+                peg_l = room
+
+    notes.append('Штырь %.2f мм, крючок %.2f мм, прорезь %.2f мм' % (2.0 * r_s, 2.0 * r_hk, g))
+    notes.append('Плата садится на буртик, над платой выступает ~%.1f мм' % (z_end - p.stand_h - p.pcb_t))
+    return PcbResult(r_s, r_hk, collar_r, g, neck, slot_z0, zb, z_apex, z_end, r_tip, lead_len, ret_len,
+                     flex, l_min, strain, ins, rem, peg_l, hole_body, warns, notes)
+
+
+def pcb_post_polygon(p: PcbParams, r: PcbResult) -> Poly:
+    """Профиль тела вращения (z, r): основание, шейка, буртик, штырь и коническая головка. Начало и конец на оси."""
+    r_s, r_so = r.shaft_r, r.collar_r
+    pts: Poly = []
+    if p.separate:
+        rp = p.peg_d / 2.0
+        ch = min(0.4, r.peg_l / 3.0)
+        pts += [(-r.peg_l, 0.0), (-r.peg_l, max(rp - ch, 0.1)), (-r.peg_l + ch, rp), (0.0, rp), (0.0, r_so)]
+    else:
+        pts += [(-PCB_EMBED, 0.0), (-PCB_EMBED, r_so)]
+    pts.append((PCB_FOOT_H, r_so))
+    zc0 = p.stand_h - min(max(p.collar_h, 0.4), p.stand_h)
+    if r.neck:
+        pts += [(PCB_FOOT_H, r_s), (zc0, r_s), (zc0, r_so)]
+    pts += [(p.stand_h, r_so), (p.stand_h, r_s), (r.zb, r_s), (r.z_apex, r.hook_r),
+            (r.z_apex + PCB_FLAT, r.hook_r), (r.z_end, r.r_tip), (r.z_end, 0.0)]
+    return _dedupe(pts)
+
+
+def pcb_slot_polygon(p: PcbParams, r: PcbResult) -> Poly:
+    """Прорезь, делящая штырь пополам: прямоугольник (d, z); длину вдоль оси задаёт ширина экструзии."""
+    g2 = r.slot_g / 2.0
+    return [(-g2, r.slot_z0), (g2, r.slot_z0), (g2, r.z_end + 0.5), (-g2, r.z_end + 0.5)]
+
+
+def pcb_slot_width(p: PcbParams, r: PcbResult) -> float:
+    return 2.0 * r.collar_r + 2.0
+
+
+def pcb_hole_polygon(p: PcbParams, r: PcbResult) -> Poly:
+    """Глухое отверстие под клеевой штырь в теле (z, r); начало и конец на оси."""
+    rh = r.hole_d_body / 2.0
+    depth = r.peg_l + 0.5
+    return [(-depth, 0.0), (-depth, rh), (0.5, rh), (0.5, 0.0)]
+
+
+def format_pcb_report(p: PcbParams, r: PcbResult) -> str:
+    rem = 'не снимается' if r.removal_force is None else ('%.0f Н' % r.removal_force)
+    ins = '∞' if math.isinf(r.insertion_force) else '%.1f Н' % r.insertion_force
+    lines = ['Гибкая длина: <b>%.1f мм</b> (нужно от %.1f мм), деформация %.1f %%' % (r.flex_len, r.l_min, r.strain_pct),
+             'Усилие установки платы ~ %s, снятия: %s' % (ins, rem)]
+    lines += r.notes
+    for w in r.warnings:
+        lines.append('<font color="#c0392b">⚠ %s</font>' % w)
+    return '<br>'.join(lines)
+
+
+def min_stand_h(p: PcbParams, lo: float = 3.0, hi: float = 20.0) -> float:
+    """Наименьшая высота опоры (шаг 0.5 мм), при которой деформация штыря не выше допустимой."""
+    h = lo
+    while h < hi:
+        r = compute_pcb(replace(p, stand_h=h))
+        if r.strain_pct <= p.strain_pct + 1e-9:
+            return h
+        h += 0.5
+    return hi

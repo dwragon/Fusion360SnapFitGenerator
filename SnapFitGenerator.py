@@ -3,8 +3,9 @@
 Snap-Fit Generator для Fusion 360.
 
 Выбираешь тело, плоскость/кривую реза и точки защёлок, материал печати.
-Аддин делит тело на две половины и в каждой точке строит консольную защёлку
-(балка с крючком на одной половине + канал и окно на другой).
+Аддин делит тело на две половины и в каждой точке строит защёлку (консольную, накладную,
+U-образную, торсионную или кольцевую). Отдельные режимы: вставная защёлка-вилка с прорезями
+в телах и стойки для крепления печатных плат на метрические отверстия.
 """
 import importlib.util
 import json
@@ -39,6 +40,19 @@ PANEL_ID = 'SolidCreatePanel'
 CM = 0.1  # мм -> см (внутренние единицы Fusion)
 MODE_CUT = 'Разрезать тело (плоскость / кривая)'
 MODE_SPLIT_DONE = 'Тела уже разделены (выбрать два тела)'
+MODE_PIN = 'Вставная защёлка-вилка (отдельная деталь + прорези в телах)'
+MODE_PCB = 'Стойки для печатной платы (штыри под метрические отверстия)'
+SUB_BODY = 'Стойка в теле (печатается вместе с корпусом)'
+SUB_PEG = 'Отверстие в теле + отдельная стойка (вклеивается)'
+HOLE_ITEMS = ['%s (отв. %.1f мм)' % (k, d) for k, d in core.METRIC_HOLES.items()] + [core.CUSTOM_HOLE]
+DEFAULT_HOLE = HOLE_ITEMS[2]    # M3
+MODE_TEXT = {
+    MODE_PIN: 'Вилка с двумя ветвями печатается отдельно и вставляется в прорези одного или двух тел '
+              '(стенка или пакет из двух стенок). Головка остаётся снаружи, крючки защёлкиваются за пакетом. '
+              'Точки ставь на наружной поверхности первого тела.',
+    MODE_PCB: 'Разрезной штырь с конической головкой входит в метрическое отверстие платы, плата садится на '
+              'буртик. Точки ставь на поверхности тела там, где должны стоять отверстия платы.',
+}
 
 _app = None
 _ui = None
@@ -138,6 +152,60 @@ def apply_preset(inputs, name):
     _find(inputs, 'strain').value = m['strain']
     _find(inputs, 'E').value = m['E']
     _find(inputs, 'lead').value = math.radians(m['lead'])
+    # новые режимы: крючок штыря/вилки тоньше, чем у консольных защёлок
+    for pre in ('pn', 'pc'):
+        try:
+            _set_mm(inputs, pre + '_clearance', m['clearance'])
+            _find(inputs, pre + '_strain').value = m['strain']
+            _find(inputs, pre + '_E').value = m['E']
+            _find(inputs, pre + '_lead').value = math.radians(m['lead'])
+        except Exception:
+            pass
+    try:
+        _set_mm(inputs, 'pn_arm_t', m['arm_t'])
+        _set_mm(inputs, 'pn_engage', m['hook'])
+        _set_mm(inputs, 'pc_hook', m['hook'])
+    except Exception:
+        pass
+
+
+def _mode(inputs):
+    return _find(inputs, 'mode').selectedItem.name
+
+
+def hole_diameter(name):
+    """Диаметр отверстия по имени пункта списка; None для «Свой диаметр»."""
+    for k, d in core.METRIC_HOLES.items():
+        if name.startswith(k + ' '):
+            return d
+    return None
+
+
+def read_pin_params(inputs):
+    auto = _find(inputs, 'pn_autoLen').value
+    return core.PinParams(
+        arm_t=_mm(inputs, 'pn_arm_t'), engage=_mm(inputs, 'pn_engage'), arm_w=_mm(inputs, 'pn_arm_w'),
+        grip=_mm(inputs, 'pn_grip'), clearance=_mm(inputs, 'pn_clearance'),
+        strain_pct=_find(inputs, 'pn_strain').value, E=_find(inputs, 'pn_E').value,
+        lead_deg=math.degrees(_find(inputs, 'pn_lead').value),
+        ret_deg=math.degrees(_find(inputs, 'pn_ret').value),
+        length=None if auto else _mm(inputs, 'pn_length'),
+        head_t=_mm(inputs, 'pn_head_t'), head_over=_mm(inputs, 'pn_head_over'))
+
+
+def read_pcb_params(inputs):
+    p = core.PcbParams(
+        hole_d=_mm(inputs, 'pc_hole_d'), pcb_t=_mm(inputs, 'pc_pcb_t'), stand_h=_mm(inputs, 'pc_stand_h'),
+        collar_d=_mm(inputs, 'pc_collar_d'), collar_h=_mm(inputs, 'pc_collar_h'), hook=_mm(inputs, 'pc_hook'),
+        slot_g=_mm(inputs, 'pc_slot'), clearance=_mm(inputs, 'pc_clearance'),
+        strain_pct=_find(inputs, 'pc_strain').value, E=_find(inputs, 'pc_E').value,
+        lead_deg=math.degrees(_find(inputs, 'pc_lead').value),
+        ret_deg=math.degrees(_find(inputs, 'pc_ret').value),
+        separate=_find(inputs, 'pc_sub').selectedItem.name == SUB_PEG,
+        peg_d=_mm(inputs, 'pc_peg_d'), peg_l=_mm(inputs, 'pc_peg_l'), wall=_mm(inputs, 'pc_wall'))
+    if _find(inputs, 'pc_autoH').value:
+        p.stand_h = core.min_stand_h(p)
+    return p
 
 
 LABELS = {
@@ -184,19 +252,72 @@ def apply_type(inputs, name):
 
 
 def apply_mode(inputs):
-    """Показать поля выбранного режима и типа: разрез или готовые тела, точки или кольцевые рёбра."""
-    split_mode = _find(inputs, 'mode').selectedItem.name == MODE_SPLIT_DONE
-    ann = _type_info(inputs).get('kind', 'beam') == 'annular'
-    _find(inputs, 'cut').isVisible = not split_mode
-    _find(inputs, 'body2').isVisible = split_mode
-    _find(inputs, 'projPts').isVisible = (not split_mode) and not ann
-    _find(inputs, 'bothSides').isVisible = (not split_mode) and not ann
-    _find(inputs, 'pts').isVisible = not ann
+    """Показать поля выбранного режима и типа: разрез, готовые тела, вилка или стойки для платы."""
+    m = _mode(inputs)
+    pin, pcb = m == MODE_PIN, m == MODE_PCB
+    snap = not (pin or pcb)
+    split_mode = m == MODE_SPLIT_DONE
+    ann = snap and _type_info(inputs).get('kind', 'beam') == 'annular'
+    _find(inputs, 'cut').isVisible = (m == MODE_CUT)
+    _find(inputs, 'body2').isVisible = split_mode or pin
+    _find(inputs, 'projPts').isVisible = (m == MODE_CUT) and not ann
+    _find(inputs, 'bothSides').isVisible = (m == MODE_CUT) and not ann
+    _find(inputs, 'pts').isVisible = pin or pcb or (snap and not ann)
     _find(inputs, 'ring').isVisible = ann
+    _find(inputs, 'ctype').isVisible = snap
+    _find(inputs, 'params').isVisible = snap
+    _find(inputs, 'pinParams').isVisible = pin
+    _find(inputs, 'pcbParams').isVisible = pcb
+    _set_label(inputs, 'body', 'Тело (первое в пакете)' if pin else ('Тело корпуса' if pcb else 'Тело'))
+    _set_label(inputs, 'body2', 'Второе тело в пакете (если есть)' if pin else 'Второе тело')
+    _set_label(inputs, 'pts', 'Точки вилок' if pin else ('Центры стоек' if pcb else 'Точки защёлок'))
+    apply_pin(inputs)
+    apply_pcb(inputs)
+
+
+def apply_pin(inputs):
+    """Доступность полей вилки: толщина пакета и длина ветви могут браться автоматически."""
+    try:
+        _find(inputs, 'pn_grip').isEnabled = not _find(inputs, 'pn_auto').value
+        _find(inputs, 'pn_length').isEnabled = not _find(inputs, 'pn_autoLen').value
+    except Exception:
+        pass
+
+
+def apply_pcb(inputs):
+    """Поля стойки: диаметр отверстия из списка метрических, высота опоры авто, поля клеевого штыря."""
+    try:
+        hd = hole_diameter(_find(inputs, 'pc_hole').selectedItem.name)
+        if hd is not None:
+            _set_mm(inputs, 'pc_hole_d', hd)
+        _find(inputs, 'pc_hole_d').isEnabled = hd is None
+        _find(inputs, 'pc_stand_h').isEnabled = not _find(inputs, 'pc_autoH').value
+        sep = _find(inputs, 'pc_sub').selectedItem.name == SUB_PEG
+        for cid in ('pc_peg_d', 'pc_peg_l', 'pc_autoWall'):
+            _find(inputs, cid).isVisible = sep
+        _find(inputs, 'pc_wall').isVisible = sep
+        _find(inputs, 'pc_wall').isEnabled = not _find(inputs, 'pc_autoWall').value
+    except Exception:
+        pass
 
 
 def update_info(inputs):
     try:
+        m = _mode(inputs)
+        if m == MODE_PIN:
+            p = read_pin_params(inputs)
+            r = core.compute_pin(p)
+            if _find(inputs, 'pn_autoLen').value:
+                _set_mm(inputs, 'pn_length', r.length)
+            _find(inputs, 'info').formattedText = '<i>%s</i><br><br>%s' % (MODE_TEXT[m], core.format_pin_report(p, r))
+            return
+        if m == MODE_PCB:
+            p = read_pcb_params(inputs)
+            if _find(inputs, 'pc_autoH').value:
+                _set_mm(inputs, 'pc_stand_h', p.stand_h)
+            r = core.compute_pcb(p)
+            _find(inputs, 'info').formattedText = '<i>%s</i><br><br>%s' % (MODE_TEXT[m], core.format_pcb_report(p, r))
+            return
         p = read_params(inputs)
         auto_wall = _find(inputs, 'autoWall').value
         _find(inputs, 'wall').isEnabled = not auto_wall
@@ -218,11 +339,15 @@ def update_info(inputs):
 
 # ------------------------------------------------------- память настроек ---
 SETTINGS_VERSION = 1
-DROP_IDS = ('mode', 'material', 'ctype')
-BOOL_IDS = ('projPts', 'bothSides', 'autoWall', 'autoLen', 'fillet', 'pins', 'through', 'flip')
-MM_IDS = ('wall', 'arm_t', 'arm_w', 'engage', 'clearance', 'length', 'slot_w')
-DEG_IDS = ('lead', 'ret')
-NUM_IDS = ('strain', 'E', 'taper', 'slots')
+DROP_IDS = ('mode', 'material', 'ctype', 'pc_hole', 'pc_sub')
+BOOL_IDS = ('projPts', 'bothSides', 'autoWall', 'autoLen', 'fillet', 'pins', 'through', 'flip',
+            'pn_auto', 'pn_autoLen', 'pn_rot', 'pc_autoH', 'pc_autoWall', 'pc_rot')
+MM_IDS = ('wall', 'arm_t', 'arm_w', 'engage', 'clearance', 'length', 'slot_w',
+          'pn_grip', 'pn_arm_t', 'pn_engage', 'pn_arm_w', 'pn_clearance', 'pn_length', 'pn_head_t', 'pn_head_over',
+          'pc_hole_d', 'pc_pcb_t', 'pc_stand_h', 'pc_collar_d', 'pc_collar_h', 'pc_hook', 'pc_slot',
+          'pc_clearance', 'pc_peg_d', 'pc_peg_l', 'pc_wall')
+DEG_IDS = ('lead', 'ret', 'pn_lead', 'pn_ret', 'pc_lead', 'pc_ret')
+NUM_IDS = ('strain', 'E', 'taper', 'slots', 'pn_strain', 'pn_E', 'pc_strain', 'pc_E')
 SECTIONS = ('drop', 'bool', 'mm', 'deg', 'num')
 
 
@@ -234,13 +359,23 @@ def factory_state():
     """Заводские значения диалога (в мм, градусах и обычных числах)."""
     m = core.MATERIALS[core.DEFAULT_MATERIAL]
     return {
-        'drop': {'mode': MODE_CUT, 'material': core.DEFAULT_MATERIAL, 'ctype': core.DEFAULT_TYPE},
+        'drop': {'mode': MODE_CUT, 'material': core.DEFAULT_MATERIAL, 'ctype': core.DEFAULT_TYPE,
+                 'pc_hole': DEFAULT_HOLE, 'pc_sub': SUB_BODY},
         'bool': {'projPts': True, 'bothSides': False, 'autoWall': True, 'autoLen': True,
-                 'fillet': True, 'pins': True, 'through': True, 'flip': False},
+                 'fillet': True, 'pins': True, 'through': True, 'flip': False,
+                 'pn_auto': True, 'pn_autoLen': True, 'pn_rot': False,
+                 'pc_autoH': True, 'pc_autoWall': True, 'pc_rot': False},
         'mm': {'wall': 2.4, 'arm_t': m['arm_t'], 'arm_w': 5.0, 'engage': m['engage'],
-               'clearance': m['clearance'], 'length': 10.0, 'slot_w': 1.5},
-        'deg': {'lead': m['lead'], 'ret': core.TYPES[core.DEFAULT_TYPE]['ret']},
-        'num': {'strain': m['strain'], 'E': m['E'], 'taper': 50.0, 'slots': 8},
+               'clearance': m['clearance'], 'length': 10.0, 'slot_w': 1.5,
+               'pn_grip': 3.0, 'pn_arm_t': m['arm_t'], 'pn_engage': m['hook'], 'pn_arm_w': 6.0,
+               'pn_clearance': m['clearance'], 'pn_length': 8.0, 'pn_head_t': 2.0, 'pn_head_over': 2.0,
+               'pc_hole_d': 3.2, 'pc_pcb_t': 1.6, 'pc_stand_h': 5.5, 'pc_collar_d': 0.0, 'pc_collar_h': 1.2,
+               'pc_hook': m['hook'], 'pc_slot': 0.0, 'pc_clearance': m['clearance'],
+               'pc_peg_d': 3.0, 'pc_peg_l': 4.0, 'pc_wall': 5.0},
+        'deg': {'lead': m['lead'], 'ret': core.TYPES[core.DEFAULT_TYPE]['ret'],
+                'pn_lead': m['lead'], 'pn_ret': 60.0, 'pc_lead': m['lead'], 'pc_ret': 60.0},
+        'num': {'strain': m['strain'], 'E': m['E'], 'taper': 50.0, 'slots': 8,
+                'pn_strain': m['strain'], 'pn_E': m['E'], 'pc_strain': m['strain'], 'pc_E': m['E']},
     }
 
 
@@ -368,6 +503,8 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
                 'mode', 'Режим', adsk.core.DropDownStyles.TextListDropDownStyle)
             md.listItems.add(MODE_CUT, True)
             md.listItems.add(MODE_SPLIT_DONE, False)
+            md.listItems.add(MODE_PIN, False)
+            md.listItems.add(MODE_PCB, False)
 
             s = inputs.addSelectionInput('body', 'Тело', 'Тело, которое нужно разрезать '
                                          '(в режиме готовых тел - первое из двух тел)')
@@ -451,6 +588,61 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             g.addBoolValueInput('through', 'Сквозное окно в стенке', True, '', True)
             g.addBoolValueInput('flip', 'Реверс: балка на другой половине', True, '', False)
 
+            # --- вставная защёлка-вилка
+            pn = inputs.addGroupCommandInput('pinParams', 'Параметры вилки').children
+            pn.addBoolValueInput('pn_auto', 'Толщину пакета брать с модели', True, '', True)
+            pn.addValueInput('pn_grip', 'Толщина пакета (вручную)', 'mm', vi.createByReal(3.0 * CM))
+            pn.addValueInput('pn_arm_t', 'Толщина ветви', 'mm', vi.createByReal(m['arm_t'] * CM))
+            pn.addValueInput('pn_arm_w', 'Ширина вилки', 'mm', vi.createByReal(6.0 * CM))
+            pn.addValueInput('pn_engage', 'Перекрытие крючка', 'mm', vi.createByReal(m['hook'] * CM))
+            pn.addValueInput('pn_clearance', 'Зазор в прорези', 'mm', vi.createByReal(m['clearance'] * CM))
+            pn.addFloatSpinnerCommandInput('pn_strain', 'Допустимая деформация, %', '',
+                                           0.1, 10.0, 0.1, m['strain'])
+            pn.addFloatSpinnerCommandInput('pn_E', 'Модуль E, МПа', '', 100.0, 5000.0, 100.0, m['E'])
+            pn.addValueInput('pn_lead', 'Угол заведения', 'deg', vi.createByReal(math.radians(m['lead'])))
+            pn.addValueInput('pn_ret', 'Угол возврата (90 = неразъёмно)', 'deg',
+                             vi.createByReal(math.radians(60.0)))
+            pn.addBoolValueInput('pn_autoLen', 'Длина ветви по расчёту', True, '', True)
+            pn.addValueInput('pn_length', 'Длина ветви', 'mm', vi.createByReal(8.0 * CM))
+            pn.addValueInput('pn_head_t', 'Толщина головки', 'mm', vi.createByReal(2.0 * CM))
+            pn.addValueInput('pn_head_over', 'Вылет головки за прорезь', 'mm', vi.createByReal(2.0 * CM))
+            pn.addBoolValueInput('pn_rot', 'Повернуть вилку на 90°', True, '', False)
+            inputs.itemById('pinParams').isVisible = False
+
+            # --- стойки для печатной платы
+            pc = inputs.addGroupCommandInput('pcbParams', 'Параметры стойки для платы').children
+            hd = pc.addDropDownCommandInput('pc_hole', 'Отверстие в плате',
+                                            adsk.core.DropDownStyles.TextListDropDownStyle)
+            for name in HOLE_ITEMS:
+                hd.listItems.add(name, name == DEFAULT_HOLE)
+            pc.addValueInput('pc_hole_d', 'Диаметр отверстия платы', 'mm', vi.createByReal(3.2 * CM))
+            pc.addValueInput('pc_pcb_t', 'Толщина платы', 'mm', vi.createByReal(1.6 * CM))
+            pc.addBoolValueInput('pc_autoH', 'Высоту опоры подобрать по расчёту', True, '', True)
+            pc.addValueInput('pc_stand_h', 'Высота опоры платы над телом', 'mm', vi.createByReal(5.5 * CM))
+            pc.addValueInput('pc_collar_d', 'Диаметр буртика (0 = авто)', 'mm', vi.createByReal(0.0))
+            pc.addValueInput('pc_collar_h', 'Высота буртика под платой', 'mm', vi.createByReal(1.2 * CM))
+            pc.addValueInput('pc_hook', 'Перекрытие крючка', 'mm', vi.createByReal(m['hook'] * CM))
+            pc.addValueInput('pc_slot', 'Ширина прорези (0 = авто)', 'mm', vi.createByReal(0.0))
+            pc.addValueInput('pc_clearance', 'Зазор штыря в отверстии (по диаметру)', 'mm',
+                             vi.createByReal(m['clearance'] * CM))
+            pc.addFloatSpinnerCommandInput('pc_strain', 'Допустимая деформация, %', '',
+                                           0.1, 10.0, 0.1, m['strain'])
+            pc.addFloatSpinnerCommandInput('pc_E', 'Модуль E, МПа', '', 100.0, 5000.0, 100.0, m['E'])
+            pc.addValueInput('pc_lead', 'Угол заведения', 'deg', vi.createByReal(math.radians(m['lead'])))
+            pc.addValueInput('pc_ret', 'Угол возврата (90 = неразъёмно)', 'deg',
+                             vi.createByReal(math.radians(60.0)))
+            sd = pc.addDropDownCommandInput('pc_sub', 'Исполнение',
+                                            adsk.core.DropDownStyles.TextListDropDownStyle)
+            sd.listItems.add(SUB_BODY, True)
+            sd.listItems.add(SUB_PEG, False)
+            pc.addBoolValueInput('pc_autoWall', 'Толщину стенки под стойкой брать с модели', True, '', True)
+            pc.addValueInput('pc_wall', 'Толщина стенки под стойкой (вручную)', 'mm',
+                             vi.createByReal(5.0 * CM))
+            pc.addValueInput('pc_peg_d', 'Диаметр клеевого штыря', 'mm', vi.createByReal(3.0 * CM))
+            pc.addValueInput('pc_peg_l', 'Длина клеевого штыря', 'mm', vi.createByReal(4.0 * CM))
+            pc.addBoolValueInput('pc_rot', 'Повернуть прорезь на 90°', True, '', False)
+            inputs.itemById('pcbParams').isVisible = False
+
             inputs.addBoolValueInput('resetDefaults', 'Сбросить настройки к заводским (отметь галку)',
                                      True, '', False)
             inputs.addTextBoxCommandInput('info', 'Расчёт', '', 12, True)
@@ -483,6 +675,10 @@ class InputChangedHandler(adsk.core.InputChangedEventHandler):
                 apply_mode(inputs)
             elif args.input.id == 'mode':
                 apply_mode(inputs)
+            elif args.input.id in ('pc_hole', 'pc_autoH', 'pc_sub', 'pc_autoWall'):
+                apply_pcb(inputs)
+            elif args.input.id in ('pn_auto', 'pn_autoLen'):
+                apply_pin(inputs)
             update_info(inputs)
         except Exception:
             pass
@@ -492,15 +688,27 @@ class ValidateHandler(adsk.core.ValidateInputsEventHandler):
     def notify(self, args):
         try:
             i = args.inputs
-            split_mode = _find(i, 'mode').selectedItem.name == MODE_SPLIT_DONE
-            ann = _type_info(i).get('kind', 'beam') == 'annular'
-            ok = (_find(i, 'body').selectionCount == 1 and
-                  (_find(i, 'ring').selectionCount if ann else _find(i, 'pts').selectionCount) >= 1)
-            if split_mode:
-                ok = ok and _find(i, 'body2').selectionCount == 1
+            m = _mode(i)
+            ok = _find(i, 'body').selectionCount == 1
+            if m == MODE_PIN:
+                ok = ok and _find(i, 'pts').selectionCount >= 1
+                req = ('pn_grip', 'pn_arm_t', 'pn_arm_w', 'pn_engage', 'pn_clearance', 'pn_length',
+                       'pn_head_t', 'pn_head_over')
+            elif m == MODE_PCB:
+                ok = ok and _find(i, 'pts').selectionCount >= 1
+                req = ['pc_hole_d', 'pc_pcb_t', 'pc_stand_h', 'pc_collar_h', 'pc_hook', 'pc_clearance']
+                if _find(i, 'pc_sub').selectedItem.name == SUB_PEG:
+                    req += ['pc_peg_d', 'pc_peg_l', 'pc_wall']
             else:
-                ok = ok and _find(i, 'cut').selectionCount >= 1
-            for cid in ('wall', 'arm_t', 'arm_w', 'engage', 'clearance', 'length') + (('slot_w',) if ann else ()):
+                split_mode = m == MODE_SPLIT_DONE
+                ann = _type_info(i).get('kind', 'beam') == 'annular'
+                ok = ok and (_find(i, 'ring').selectionCount if ann else _find(i, 'pts').selectionCount) >= 1
+                if split_mode:
+                    ok = ok and _find(i, 'body2').selectionCount == 1
+                else:
+                    ok = ok and _find(i, 'cut').selectionCount >= 1
+                req = ('wall', 'arm_t', 'arm_w', 'engage', 'clearance', 'length') + (('slot_w',) if ann else ())
+            for cid in req:
                 if _find(i, cid).value <= 0:
                     ok = False
             args.areInputsValid = ok
@@ -515,10 +723,23 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             inputs = args.command.commandInputs
             save_settings(inputs)
             body = adsk.fusion.BRepBody.cast(_find(inputs, 'body').selection(0).entity)
+            mode = _mode(inputs)
+            if mode in (MODE_PIN, MODE_PCB):
+                pts_in = _find(inputs, 'pts')
+                pts = [_point_of(pts_in.selection(k).entity) for k in range(pts_in.selectionCount)]
+                if mode == MODE_PIN:
+                    b2_in = _find(inputs, 'body2')
+                    b2 = adsk.fusion.BRepBody.cast(b2_in.selection(0).entity) if b2_in.selectionCount else None
+                    build_pin(design, body, b2, pts, read_pin_params(inputs),
+                              _find(inputs, 'pn_auto').value, _find(inputs, 'pn_rot').value)
+                else:
+                    build_pcb(design, body, pts, read_pcb_params(inputs),
+                              _find(inputs, 'pc_autoWall').value, _find(inputs, 'pc_rot').value)
+                return
             params = read_params(inputs)
             flip = _find(inputs, 'flip').value
             auto_wall = _find(inputs, 'autoWall').value
-            split_mode = _find(inputs, 'mode').selectedItem.name == MODE_SPLIT_DONE
+            split_mode = mode == MODE_SPLIT_DONE
             body2 = adsk.fusion.BRepBody.cast(_find(inputs, 'body2').selection(0).entity) if split_mode else None
 
             if params.kind == 'annular':
@@ -1268,6 +1489,213 @@ def build_annular(design, body, body2, cut_ent, rings, P, flip, auto_wall=False)
         if len(results) > 1:
             notes.append('Для нескольких колец показан расчёт первого.')
         _report(len(seats), res0, notes, 'annular')
+    except Exception:
+        _rollback(design, start)
+        raise
+
+
+# --------------------------------------------- вилка и стойки для печатной платы ---
+def _make_revolved(comp, anchor, axis, U, poly_mm):
+    """
+    Тело вращения: полигон (z, r) вращается на 360 градусов вокруг своей оси z (профиль может лежать
+    на оси), затем ось совмещается с направлением axis в точке anchor (U - любое направление поперёк оси).
+    """
+    sk = comp.sketches.add(comp.xYConstructionPlane)
+    sk.isLightBulbOn = False
+
+    def to_sk(zz, rr):
+        sp = sk.modelToSketchSpace(adsk.core.Point3D.create(zz * CM, rr * CM, 0))
+        return adsk.core.Point3D.create(sp.x, sp.y, 0)
+
+    _draw_polygon(sk, [to_sk(zz, rr) for zz, rr in poly_mm])
+    if sk.profiles.count < 1:
+        raise UserError('Профиль стойки не замкнулся (проверьте параметры).')
+    prof = sk.profiles.item(0)
+    z_lo = min(z for z, _ in poly_mm) - 2.0
+    z_hi = max(z for z, _ in poly_mm) + 2.0
+    axis_line = sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(z_lo, 0.0), to_sk(z_hi, 0.0))
+    axis_line.isConstruction = True
+    revs = comp.features.revolveFeatures
+    ri = revs.createInput(prof, axis_line, adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+    ri.setAngleExtent(False, adsk.core.ValueInput.createByReal(2.0 * math.pi))
+    body = revs.add(ri).bodies.item(0)
+    _move_body(comp, body, anchor, axis, U)
+    return body
+
+
+def _ref_dir(n, rot):
+    """Направление в плоскости стенки (перпендикулярно n): проекция мировой Z, иначе X; rot - на 90°."""
+    d = None
+    for ref in (_v(0, 0, 1), _v(1, 0, 0)):
+        try:
+            d = _perp_unit(ref, n, 'x')
+            break
+        except UserError:
+            continue
+    if rot:
+        d = _unit(n.crossProduct(d))
+    return d
+
+
+def _measure_stack(comp, q_out, N, bodies):
+    """
+    Толщина пакета, мм: от наружной точки вглубь (-N) через подряд идущие стенки выбранных тел
+    (стенки касаются друг друга). None, если измерить не удалось.
+    """
+    try:
+        eps = 0.005
+        origin = _pt_add(q_out, N, -eps)
+        direction = _v(-N.x, -N.y, -N.z)
+        hits = adsk.core.ObjectCollection.create()
+        comp.findBRepUsingRay(origin, direction, adsk.fusion.BRepEntityTypes.BRepFaceEntityType,
+                              -1.0, False, hits)
+        dists = sorted(set(round(origin.distanceTo(hits.item(i)), 4) for i in range(hits.count)))
+        pos = 0.0
+        for d in dists:
+            if d <= pos + 0.01:
+                continue
+            mid = _pt_add(origin, direction, (pos + d) / 2.0)
+            if any(_inside(b, mid) for b in bodies):
+                pos = d
+            else:
+                break
+        if pos <= 0.0:
+            return None
+        return (pos + eps) / CM
+    except Exception:
+        return None
+
+
+def _slot_hits(b, q, n, grip_mm):
+    """Пересекает ли прорезь тело b: проверяем точки на глубине 25/50/75 % пакета под точкой q."""
+    g = max(grip_mm, 0.8)
+    return any(_inside(b, _pt_add(q, n, -f * g * CM)) for f in (0.25, 0.5, 0.75))
+
+
+def _rename(design, body, name):
+    try:
+        _fresh(design, body).name = name
+    except Exception:
+        pass
+
+
+def build_pin(design, body, body2, pts, P, auto_grip, rot):
+    """
+    Режим «вилка»: в каждой точке строится отдельная вилка (тело) и вырезается прорезь в теле
+    (и во втором теле, если оно задано и попадает в пакет).
+    """
+    bodies = [body] + ([body2] if body2 is not None else [])
+    _check_design(design, *bodies)
+    comp = body.parentComponent
+    if body2 is not None:
+        if body.entityToken == body2.entityToken:
+            raise UserError('Выберите два разных тела.')
+        if body2.parentComponent.entityToken != comp.entityToken:
+            raise UserError('Оба тела должны лежать в одном компоненте.')
+    notes = []
+    start = design.timeline.markerPosition
+    try:
+        frames, grips = [], []
+        for p in pts:
+            q, n = _outer_normal(body, _v(0, 0, 0), p)
+            frames.append((q, _ref_dir(n, rot), n))
+            if auto_grip:
+                grips.append(_measure_stack(comp, q, n, bodies))
+        if auto_grip:
+            good = [g for g in grips if g]
+            if good and len(good) == len(grips):
+                P.grip = min(good)
+                notes.append('Толщина пакета по модели: %.2f мм.' % P.grip)
+                if max(good) - min(good) > 0.3:
+                    notes.append('Толщина пакета в точках разная (%.1f-%.1f мм), взята минимальная.'
+                                 % (min(good), max(good)))
+            else:
+                notes.append('Не удалось измерить пакет по модели, использовано значение из поля '
+                             '(%.1f мм). Проверьте его.' % P.grip)
+        res = core.compute_pin(P)
+        JOIN = adsk.fusion.FeatureOperations.JoinFeatureOperation
+        CUT = adsk.fusion.FeatureOperations.CutFeatureOperation
+        slot_w = P.arm_w + 2.0 * P.clearance
+        for k, frame in enumerate(frames):
+            q, D, n = frame
+            fork = _make_tool(comp, frame, core.pin_to_local(core.pin_arms_polygon(P, res)), P.arm_w)
+            head = _make_tool(comp, frame, core.pin_to_local(core.pin_head_polygon(P, res)),
+                              P.arm_w + 2.0 * P.head_over)
+            _combine(comp, _fresh(design, fork), [_fresh(design, head)], JOIN)
+            _rename(design, fork, 'Snap pin %d' % (k + 1))
+            cut_any = False
+            for b in bodies:
+                if _slot_hits(b, q, n, P.grip):
+                    tool = _make_tool(comp, frame, core.pin_to_local(core.pin_slot_polygon(P, res)), slot_w)
+                    _combine(comp, _fresh(design, b), [_fresh(design, tool)], CUT)
+                    cut_any = True
+                elif b is body or b.entityToken == body.entityToken:
+                    raise UserError('Точка %d: под ней нет материала первого тела на глубину пакета. '
+                                    'Поставьте точку на наружную поверхность стенки.' % (k + 1))
+                else:
+                    notes.append('Точка %d: второе тело не попадает в пакет, прорезь в нём не сделана.' % (k + 1))
+            if not cut_any:
+                raise UserError('Не удалось вырезать прорезь.')
+        if _group_timeline(design, start):
+            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
+        msg = ('Готово: %d вилок(и), ветвь %.1f мм, пакет %.1f мм.\n'
+               'Вилки созданы отдельными телами «Snap pin» в рабочем положении; в телах вырезаны прорези.'
+               % (len(frames), res.length, P.grip))
+        extra = list(res.notes) + notes
+        msg += '\n' + '\n'.join(extra)
+        if res.warnings:
+            msg += '\n\nПредупреждения:\n- ' + '\n- '.join(res.warnings)
+        _ui.messageBox(msg)
+    except Exception:
+        _rollback(design, start)
+        raise
+
+
+def build_pcb(design, body, pts, P, auto_wall, rot):
+    """
+    Режим «стойки для платы»: в каждой точке разрезной штырь с головкой на опоре. Исполнение «в теле» -
+    стойка объединяется с телом; «отдельная» - в теле глухое отверстие, стойка остаётся отдельным телом.
+    """
+    _check_design(design, body)
+    comp = body.parentComponent
+    notes = []
+    start = design.timeline.markerPosition
+    try:
+        seats, walls = [], []
+        for p in pts:
+            q, n = _outer_normal(body, _v(0, 0, 0), p)
+            U = _perp(n)
+            if rot:
+                U = _unit(n.crossProduct(U))
+            seats.append((q, n, U))
+            if auto_wall and P.separate:
+                walls.append(_measure_wall(comp, q, n))
+        if auto_wall and P.separate:
+            _apply_auto_wall(P, walls, notes)
+        res = core.compute_pcb(P)
+        JOIN = adsk.fusion.FeatureOperations.JoinFeatureOperation
+        CUT = adsk.fusion.FeatureOperations.CutFeatureOperation
+        for k, (q, n, U) in enumerate(seats):
+            post = _make_revolved(comp, q, n, U, core.pcb_post_polygon(P, res))
+            slit = _make_tool(comp, (q, U, n), core.pcb_slot_polygon(P, res), core.pcb_slot_width(P, res))
+            _combine(comp, _fresh(design, post), [_fresh(design, slit)], CUT)
+            if P.separate:
+                hole = _make_revolved(comp, q, n, U, core.pcb_hole_polygon(P, res))
+                _combine(comp, _fresh(design, body), [_fresh(design, hole)], CUT)
+                _rename(design, post, 'PCB post %d' % (k + 1))
+            else:
+                _combine(comp, _fresh(design, body), [_fresh(design, post)], JOIN)
+        if _group_timeline(design, start):
+            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
+        msg = 'Готово: %d стоек(и) под отверстие %.1f мм.' % (len(seats), P.hole_d)
+        if P.separate:
+            msg += ('\nСтойки созданы отдельными телами «PCB post» (в рабочем положении), в теле сделаны '
+                    'глухие отверстия под клей.')
+        extra = list(res.notes) + notes
+        msg += '\n' + '\n'.join(extra)
+        if res.warnings:
+            msg += '\n\nПредупреждения:\n- ' + '\n- '.join(res.warnings)
+        _ui.messageBox(msg)
     except Exception:
         _rollback(design, start)
         raise
