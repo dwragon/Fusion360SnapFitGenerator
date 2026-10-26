@@ -12,6 +12,81 @@
 import math
 from dataclasses import dataclass, field, replace
 from typing import List, Optional, Tuple
+import importlib.util
+import json
+import os
+
+
+# ----------------------------------------------------------------- языки ---
+# Исходные строки аддина русские и обёрнуты в tr(). Для английского языка перевод лежит рядом в
+# snapfit_en.py (словарь EN: русская строка -> английская). Язык выбирается при загрузке аддина:
+#   1) переменная окружения SNAPFIT_LANG (ru / en), нужна для тестов;
+#   2) выбор в диалоге («Language / Язык»), он сохраняется в ~/.snapfit_generator/settings.json;
+#   3) язык интерфейса Fusion, затем язык интерфейса Windows: русский -> ru;
+#   4) иначе английский.
+LANG_AUTO, LANG_EN, LANG_RU = 'Auto', 'English', 'Русский'
+
+
+def _fusion_is_russian() -> Optional[bool]:
+    try:
+        import adsk.core
+        ul = adsk.core.Application.get().preferences.generalPreferences.userLanguage
+        return bool(ul == adsk.core.UserLanguages.RussianLanguage)
+    except Exception:
+        return None
+
+
+def _os_is_russian() -> bool:
+    try:
+        import ctypes
+        lid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+        return (lid & 0x3FF) == 0x19
+    except Exception:
+        pass
+    try:
+        import locale
+        loc = (locale.getlocale()[0] or '').lower()
+        return loc.startswith('ru')
+    except Exception:
+        return False
+
+
+def detect_language() -> str:
+    env = os.environ.get('SNAPFIT_LANG', '').strip().lower()
+    if env in ('ru', 'en'):
+        return env
+    try:
+        path = os.path.join(os.path.expanduser('~'), '.snapfit_generator', 'settings.json')
+        with open(path, encoding='utf-8') as f:
+            v = json.load(f).get('drop', {}).get('lang')
+        if v == LANG_RU:
+            return 'ru'
+        if v == LANG_EN:
+            return 'en'
+    except Exception:
+        pass
+    if _fusion_is_russian() or _os_is_russian():
+        return 'ru'
+    return 'en'
+
+
+LANG = detect_language()
+_EN: dict = {}
+if LANG == 'en':
+    try:
+        _spec = importlib.util.spec_from_file_location(
+            'snapfit_generator_en', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snapfit_en.py'))
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        _EN = dict(_mod.EN)
+    except Exception:
+        LANG = 'ru'     # нет файла перевода: остаёмся на русском, а не на ломаном английском
+
+
+def tr(text: str) -> str:
+    """Перевод строки на язык интерфейса (для русского - сама строка)."""
+    return _EN.get(text, text)
+
 
 # Стартовые значения для FDM. Это консервативные точки отсчёта, а не истина:
 # деформация ~10-15% от удлинения при разрыве (с запасом на межслойную адгезию),
@@ -21,7 +96,7 @@ MATERIALS = {
     'PETG': dict(arm_t=1.6, engage=0.8, clearance=0.25, strain=2.5, E=2000.0, lead=30.0, hook=0.40),
     'ABS':  dict(arm_t=1.6, engage=0.8, clearance=0.30, strain=1.5, E=2100.0, lead=30.0, hook=0.35),
     'ASA':  dict(arm_t=1.6, engage=0.8, clearance=0.30, strain=1.5, E=2000.0, lead=30.0, hook=0.35),
-    'PA (нейлон)': dict(arm_t=1.6, engage=1.0, clearance=0.30, strain=4.0, E=1500.0, lead=30.0, hook=0.50),
+    tr('PA (нейлон)'): dict(arm_t=1.6, engage=1.0, clearance=0.30, strain=4.0, E=1500.0, lead=30.0, hook=0.50),
 }
 DEFAULT_MATERIAL = 'PETG'
 
@@ -30,49 +105,49 @@ DEFAULT_MATERIAL = 'PETG'
 #   style='overlay' - накладная: балка стоит ВНУТРИ корпуса вдоль стенки, крючок уходит в окно
 #                     стенки другой половины (для тонких стенок 1.2-2 мм).
 TYPES = {
-    'Консольный разъёмный (60°)': dict(
+    tr('Консольный разъёмный (60°)'): dict(
         ret=60.0, style='inset', shape='straight',
-        text='Балка с крючком внутри стенки, возврат под 60°: защёлку можно открыть без поломки '
-             '(корпуса, батарейные отсеки, сервисные крышки). Нужна стенка от ~2.5 мм.'),
-    'Консольный неразъёмный (90°)': dict(
+        text=tr('Балка с крючком внутри стенки, возврат под 60°: защёлку можно открыть без поломки '
+             '(корпуса, батарейные отсеки, сервисные крышки). Нужна стенка от ~2.5 мм.')),
+    tr('Консольный неразъёмный (90°)'): dict(
         ret=90.0, style='inset', shape='straight',
-        text='Балка с крючком внутри стенки, возврат под 90°: не открывается без отжатия или '
-             'разрушения балки. Для крышек, которые открывать не нужно.'),
-    'Накладной для тонких стенок, разъёмный (60°)': dict(
+        text=tr('Балка с крючком внутри стенки, возврат под 90°: не открывается без отжатия или '
+             'разрушения балки. Для крышек, которые открывать не нужно.')),
+    tr('Накладной для тонких стенок, разъёмный (60°)'): dict(
         ret=60.0, style='overlay', shape='straight',
-        text='Балка стоит внутри корпуса вдоль стенки (не в толще стенки), крючок заходит в окно '
-             'стенки другой половины. Для стенок 1.2-2 мм. Окно лучше сквозное.'),
-    'Накладной для тонких стенок, неразъёмный (90°)': dict(
+        text=tr('Балка стоит внутри корпуса вдоль стенки (не в толще стенки), крючок заходит в окно '
+             'стенки другой половины. Для стенок 1.2-2 мм. Окно лучше сквозное.')),
+    tr('Накладной для тонких стенок, неразъёмный (90°)'): dict(
         ret=90.0, style='overlay', shape='straight',
-        text='То же, но возврат 90°: открыть без отжатия балки нельзя.'),
-    'U-образный накладной, разъёмный (60°)': dict(
+        text=tr('То же, но возврат 90°: открыть без отжатия балки нельзя.')),
+    tr('U-образный накладной, разъёмный (60°)'): dict(
         ret=60.0, style='overlay', shape='u',
-        text='Балка сложена буквой U: большой прогиб на короткой длине, крючок на свободной ветви '
-             'у линии разъёма. Занимает ~4.5 мм вглубь корпуса. Длина и усилия приближённые.'),
-    'Торсионный накладной, разъёмный (60°)': dict(
+        text=tr('Балка сложена буквой U: большой прогиб на короткой длине, крючок на свободной ветви '
+             'у линии разъёма. Занимает ~4.5 мм вглубь корпуса. Длина и усилия приближённые.')),
+    tr('Торсионный накладной, разъёмный (60°)'): dict(
         ret=60.0, style='overlay', shape='straight', kind='torsion',
-        text='Рычаг с крючком сидит на торсионе: квадратном стержне вдоль стенки, концы которого '
+        text=tr('Рычаг с крючком сидит на торсионе: квадратном стержне вдоль стенки, концы которого '
              'закреплены в стойках своей половины. Крючок отжимается скручиванием стержня. Компактен '
-             'вглубь корпуса (как накладная балка), но длиннее вдоль стенки (~15-20 мм).'),
-    'Торсионный с кнопкой, неразъёмный (90°)': dict(
+             'вглубь корпуса (как накладная балка), но длиннее вдоль стенки (~15-20 мм).')),
+    tr('Торсионный с кнопкой, неразъёмный (90°)'): dict(
         ret=90.0, style='overlay', shape='straight', kind='torsion',
-        text='То же, но возврат 90°: держит жёстко, открывается нажатием на крючок через окно в стенке '
-             '(штифтом или отвёрткой). Окно лучше сквозное.'),
-    'Кольцевой в стенке, разъёмный (60°)': dict(
+        text=tr('То же, но возврат 90°: держит жёстко, открывается нажатием на крючок через окно в стенке '
+             '(штифтом или отвёрткой). Окно лучше сквозное.')),
+    tr('Кольцевой в стенке, разъёмный (60°)'): dict(
         ret=60.0, style='inset', shape='straight', kind='annular',
-        text='Для круглых деталей: воротник с кольцевым валиком входит в канавку другой половины. '
+        text=tr('Для круглых деталей: воротник с кольцевым валиком входит в канавку другой половины. '
              'Воротник разрезан прорезями на пальцы (иначе кольцо слишком жёсткое для печати). '
-             'Канавка всегда глухая: нужна стенка от ~4.5 мм. Выбирай круговое ребро на шве.'),
-    'Кольцевой в стенке, неразъёмный (90°)': dict(
+             'Канавка всегда глухая: нужна стенка от ~4.5 мм. Выбирай круговое ребро на шве.')),
+    tr('Кольцевой в стенке, неразъёмный (90°)'): dict(
         ret=90.0, style='inset', shape='straight', kind='annular',
-        text='То же, но возврат 90°: после защёлкивания не разбирается без разрушения. '
-             'Без прорезей и с хорошей геометрией может быть герметичным.'),
-    'Кольцевой накладной, разъёмный (60°)': dict(
+        text=tr('То же, но возврат 90°: после защёлкивания не разбирается без разрушения. '
+             'Без прорезей и с хорошей геометрией может быть герметичным.')),
+    tr('Кольцевой накладной, разъёмный (60°)'): dict(
         ret=60.0, style='overlay', shape='straight', kind='annular',
-        text='Для круглых деталей с тонкой стенкой (от ~2 мм): воротник стоит внутри корпуса вдоль стенки, '
-             'валик заходит в кольцевую канавку на внутренней стороне стенки другой половины.'),
+        text=tr('Для круглых деталей с тонкой стенкой (от ~2 мм): воротник стоит внутри корпуса вдоль стенки, '
+             'валик заходит в кольцевую канавку на внутренней стороне стенки другой половины.')),
 }
-DEFAULT_TYPE = 'Консольный разъёмный (60°)'
+DEFAULT_TYPE = tr('Консольный разъёмный (60°)')
 
 FRICTION = 0.3          # коэффициент трения пластик-пластик
 MIN_LENGTH = 6.0        # минимальная длина балки, мм
@@ -195,9 +270,9 @@ def _compute_beam(p: Params) -> Result:
     else:
         L = p.length
         if L < auto_len - 1e-6:
-            warns.append('Длина балки меньше расчётной (%.1f мм): деформация выше допустимой.' % auto_len)
+            warns.append(tr('Длина балки меньше расчётной (%.1f мм): деформация выше допустимой.') % auto_len)
         if is_u and L < min_len - 1e-6:
-            warns.append('Для U-образной балки длина не меньше %.1f мм (иначе крючок упирается в изгиб).' % min_len)
+            warns.append(tr('Для U-образной балки длина не меньше %.1f мм (иначе крючок упирается в изгиб).') % min_len)
     L_eq = L * leg_k
     strain = p.arm_t * p.engage / (2.0 * k1 * L_eq * L_eq) * 100.0
 
@@ -214,34 +289,34 @@ def _compute_beam(p: Params) -> Result:
         if not p.through:
             left = p.wall - (p.engage + p.clearance)
             if left < MIN_SKIN - 1e-6:
-                warns.append('Для глухого окна нужна стенка не меньше %.1f мм (сейчас %.1f мм). '
-                             'Включите «Сквозное окно».' % (p.engage + p.clearance + MIN_SKIN, p.wall))
+                warns.append(tr('Для глухого окна нужна стенка не меньше %.1f мм (сейчас %.1f мм). '
+                             'Включите «Сквозное окно».') % (p.engage + p.clearance + MIN_SKIN, p.wall))
         if p.wall < 0.8:
-            warns.append('Стенка тоньше 0.8 мм: окно ослабит её слишком сильно.')
+            warns.append(tr('Стенка тоньше 0.8 мм: окно ослабит её слишком сильно.'))
         if p.pins and p.wall - 0.4 < 0.8:
             pins_ok = False
-            warns.append('Штифты отключены: для них нужна стенка не меньше 1.2 мм.')
+            warns.append(tr('Штифты отключены: для них нужна стенка не меньше 1.2 мм.'))
     else:
         if p.through:
             if skin < MIN_SKIN - 1e-6:
-                warns.append('Стенка %.1f мм при балке %.1f мм: упор в окне тоньше %.1f мм. '
-                             'Для тонкой стенки выберите «Накладной» тип.' % (p.wall, p.arm_t, MIN_SKIN))
+                warns.append(tr('Стенка %.1f мм при балке %.1f мм: упор в окне тоньше %.1f мм. '
+                             'Для тонкой стенки выберите «Накладной» тип.') % (p.wall, p.arm_t, MIN_SKIN))
         else:
             left = skin - (p.engage + p.clearance)
             if left < MIN_SKIN - 1e-6:
-                warns.append('Для глухого окна нужна стенка не меньше %.1f мм (сейчас %.1f мм). '
-                             'Включите «Сквозное окно» или увеличьте стенку.'
+                warns.append(tr('Для глухого окна нужна стенка не меньше %.1f мм (сейчас %.1f мм). '
+                             'Включите «Сквозное окно» или увеличьте стенку.')
                              % (p.arm_t + p.engage + p.clearance + MIN_SKIN, p.wall))
         if p.pins and skin < MIN_SKIN - 1e-6:
-            warns.append('Штифты: стенка слишком тонкая, остаток над штифтом меньше %.1f мм.' % MIN_SKIN)
+            warns.append(tr('Штифты: стенка слишком тонкая, остаток над штифтом меньше %.1f мм.') % MIN_SKIN)
 
     lip_total = hook_len + 2 * p.clearance
     if not is_u and lip_total > L - 2.0:
-        warns.append('Крючок слишком длинный для балки: увеличьте длину или уменьшите зацеп.')
+        warns.append(tr('Крючок слишком длинный для балки: увеличьте длину или уменьшите зацеп.'))
     if p.arm_w < 3.0 * 0.4:
-        warns.append('Ширина балки меньше 3 линий сопла.')
+        warns.append(tr('Ширина балки меньше 3 линий сопла.'))
     if not is_u and p.arm_t * taper / 100.0 < 0.8:
-        warns.append('Толщина балки на конце меньше 0.8 мм (2 линии сопла): увеличьте толщину или конус.')
+        warns.append(tr('Толщина балки на конце меньше 0.8 мм (2 линии сопла): увеличьте толщину или конус.'))
 
     root_r = 0.0
     if p.fillet and not is_u:
@@ -253,7 +328,7 @@ def _compute_beam(p: Params) -> Result:
         if rf >= 0.3:
             root_r = round(rf * 10.0) / 10.0
         else:
-            warns.append('Скругление корня отключено: не хватает места (стенка или длина балки).')
+            warns.append(tr('Скругление корня отключено: не хватает места (стенка или длина балки).'))
     return Result(L, strain, lead_len, ret_len, P, ins, rem, warns, root_r, pins_ok)
 
 
@@ -274,20 +349,20 @@ def _compute_annular(p: Params) -> Result:
     slots = max(int(p.slots), 0)
     extra: List[str] = []
     if r_raw < 2.0 * p.arm_t:
-        extra.append('Радиус кольца %.1f мм слишком мал для такой стенки и воротника.' % p.ring_r)
+        extra.append(tr('Радиус кольца %.1f мм слишком мал для такой стенки и воротника.') % p.ring_r)
     if slots >= 2:
         w_f = (2.0 * math.pi * r_m - slots * p.slot_w) / slots
         res = _compute_beam(replace(base, arm_w=max(w_f, 0.1)))
-        res.notes.append('Кольцо R%.1f мм: %d пальцев шириной %.1f мм, прорези %.1f мм'
+        res.notes.append(tr('Кольцо R%.1f мм: %d пальцев шириной %.1f мм, прорези %.1f мм')
                          % (p.ring_r, slots, w_f, p.slot_w))
         if w_f < RING_MIN_FINGER:
-            extra.append('Пальцы уже %.0f мм: уменьшите число прорезей.' % RING_MIN_FINGER)
+            extra.append(tr('Пальцы уже %.0f мм: уменьшите число прорезей.') % RING_MIN_FINGER)
         elif w_f > RING_MAX_FINGER:
-            extra.append('Пальцы шире %.0f мм: добавьте прорези, иначе валик заходит неравномерно.'
+            extra.append(tr('Пальцы шире %.0f мм: добавьте прорези, иначе валик заходит неравномерно.')
                          % RING_MAX_FINGER)
     else:
         res = _compute_beam(replace(base, arm_w=10.0))
-        res.warnings = [w for w in res.warnings if not w.startswith('Длина балки меньше расчётной')]
+        res.warnings = [w for w in res.warnings if not w.startswith(tr('Длина балки меньше расчётной'))]
         eps = p.engage / r_m
         res.strain_pct = eps * 100.0
         w_c = max(res.lead_len, 0.5)
@@ -295,16 +370,16 @@ def _compute_annular(p: Params) -> Result:
         res.deflection_force = f_r
         res.insertion_force = _ramp_force(f_r, p.lead_deg)
         res.removal_force = None if p.ret_deg >= 89.5 else _ramp_force(f_r, p.ret_deg)
-        res.notes.append('Цельное кольцо R%.1f мм, деформация обода %.2f %%' % (p.ring_r, res.strain_pct))
+        res.notes.append(tr('Цельное кольцо R%.1f мм, деформация обода %.2f %%') % (p.ring_r, res.strain_pct))
         if res.strain_pct > p.strain_pct + 1e-9:
-            extra.append('Цельное кольцо: деформация %.1f %% выше допустимой %.1f %%. Добавьте прорези '
-                         '(пальцы) или увеличьте радиус.' % (res.strain_pct, p.strain_pct))
+            extra.append(tr('Цельное кольцо: деформация %.1f %% выше допустимой %.1f %%. Добавьте прорези '
+                         '(пальцы) или увеличьте радиус.') % (res.strain_pct, p.strain_pct))
         if math.isinf(res.insertion_force) or res.insertion_force > 200.0:
-            extra.append('Цельное кольцо слишком жёсткое для ручной сборки (усилие ~%s Н).'
+            extra.append(tr('Цельное кольцо слишком жёсткое для ручной сборки (усилие ~%s Н).')
                          % ('∞' if math.isinf(res.insertion_force) else '%.0f' % res.insertion_force))
-    res.warnings = [w.replace(' Включите «Сквозное окно» или увеличьте стенку.',
-                              ' Увеличьте стенку или выберите накладной кольцевой тип.')
-                     .replace(' Включите «Сквозное окно».', ' Увеличьте стенку.')
+    res.warnings = [w.replace(tr(' Включите «Сквозное окно» или увеличьте стенку.'),
+                              tr(' Увеличьте стенку или выберите накладной кольцевой тип.'))
+                     .replace(tr(' Включите «Сквозное окно».'), tr(' Увеличьте стенку.'))
                     for w in res.warnings] + extra
     res.pins_ok = False
     return res
@@ -327,7 +402,7 @@ def _compute_torsion(p: Params) -> Result:
     min_len = max(5.0, hook_len + 2.0 * cl + 2.0)
     L = max(min_len, math.ceil(min_len * 2.0) / 2.0) if p.length is None else p.length
     if L < min_len - 1e-6:
-        warns.append('Рычаг короче %.1f мм: крючок не помещается.' % min_len)
+        warns.append(tr('Рычаг короче %.1f мм: крючок не помещается.') % min_len)
     la = max(a / 2.0 + L - hook_len / 2.0, 1.0)          # плечо силы на крючке относительно оси торсиона
     theta = p.engage / la
 
@@ -345,29 +420,29 @@ def _compute_torsion(p: Params) -> Result:
 
     delta = 4.0 * force * L ** 3 / (p.E * max(p.arm_w, 0.1) * a ** 3)   # изгиб самого рычага
     if delta > 0.25 * p.engage:
-        warns.append('Рычаг изгибается (%.2f мм при зацепе %.2f мм): увеличьте толщину балки/рычага '
-                     'или ширину.' % (delta, p.engage))
+        warns.append(tr('Рычаг изгибается (%.2f мм при зацепе %.2f мм): увеличьте толщину балки/рычага '
+                     'или ширину.') % (delta, p.engage))
 
     pins_ok = True
     if not p.through:
         left = p.wall - (p.engage + cl)
         if left < MIN_SKIN - 1e-6:
-            warns.append('Для глухого окна нужна стенка не меньше %.1f мм (сейчас %.1f мм). '
-                         'Включите «Сквозное окно».' % (p.engage + cl + MIN_SKIN, p.wall))
+            warns.append(tr('Для глухого окна нужна стенка не меньше %.1f мм (сейчас %.1f мм). '
+                         'Включите «Сквозное окно».') % (p.engage + cl + MIN_SKIN, p.wall))
     if p.wall < 0.8:
-        warns.append('Стенка тоньше 0.8 мм: окно ослабит её слишком сильно.')
+        warns.append(tr('Стенка тоньше 0.8 мм: окно ослабит её слишком сильно.'))
     if p.pins and p.wall - 0.4 < 0.8:
         pins_ok = False
-        warns.append('Штифты отключены: для них нужна стенка не меньше 1.2 мм.')
+        warns.append(tr('Штифты отключены: для них нужна стенка не меньше 1.2 мм.'))
     if p.arm_w < 3.0:
-        warns.append('Рычаг уже 3 мм: слишком узкий.')
+        warns.append(tr('Рычаг уже 3 мм: слишком узкий.'))
     if a < 1.2:
-        warns.append('Сторона торсиона меньше 1.2 мм: при печати стержень будет слишком хрупким.')
+        warns.append(tr('Сторона торсиона меньше 1.2 мм: при печати стержень будет слишком хрупким.'))
 
     span = p.arm_w / 2.0 + lh + POST_W
-    notes = ['Торсион %.1fx%.1f мм, свободная длина каждой половины %.1f мм, угол поворота %.1f°'
+    notes = [tr('Торсион %.1fx%.1f мм, свободная длина каждой половины %.1f мм, угол поворота %.1f°')
              % (a, a, lh, math.degrees(theta)),
-             'Полная длина механизма вдоль стенки: %.1f мм' % (2.0 * span)]
+             tr('Полная длина механизма вдоль стенки: %.1f мм') % (2.0 * span)]
     return Result(L, strain_pct, lead_len, ret_len, force, ins, rem, warns, 0.0, pins_ok,
                   span=span, bar_half=lh, notes=notes)
 
@@ -644,25 +719,25 @@ def polygon_area(poly: Poly) -> float:
 
 
 def format_report(p: Params, r: Result) -> str:
-    rem = 'неразъёмная' if r.removal_force is None else ('%.0f Н' % r.removal_force)
-    ins = '∞' if math.isinf(r.insertion_force) else '%.1f Н' % r.insertion_force
+    rem = tr('неразъёмная') if r.removal_force is None else (tr('%.0f Н') % r.removal_force)
+    ins = '∞' if math.isinf(r.insertion_force) else tr('%.1f Н') % r.insertion_force
     if p.kind == 'torsion':
-        lines = ['Рычаг: <b>%.1f мм</b> (деформация торсиона %.2f %%)' % (r.length, r.strain_pct)]
+        lines = [tr('Рычаг: <b>%.1f мм</b> (деформация торсиона %.2f %%)') % (r.length, r.strain_pct)]
     elif p.kind == 'annular':
-        lines = ['Воротник: <b>%.1f мм</b> (деформация %.2f %%)' % (r.length, r.strain_pct)]
+        lines = [tr('Воротник: <b>%.1f мм</b> (деформация %.2f %%)') % (r.length, r.strain_pct)]
     else:
-        lines = ['Длина балки: <b>%.1f мм</b> (деформация %.2f %%)' % (r.length, r.strain_pct)]
-    lines.append('Крючок: заведение %.1f мм, возврат %.1f мм' % (r.lead_len, r.ret_len))
+        lines = [tr('Длина балки: <b>%.1f мм</b> (деформация %.2f %%)') % (r.length, r.strain_pct)]
+    lines.append(tr('Крючок: заведение %.1f мм, возврат %.1f мм') % (r.lead_len, r.ret_len))
     lines += r.notes
     if p.kind == 'beam':
-        lines.append('Конец балки: %.1f мм, галтель корня: %s' % (
+        lines.append(tr('Конец балки: %.1f мм, галтель корня: %s') % (
             p.arm_t * min(max(p.taper_pct, 10.0), 100.0) / 100.0,
-            ('%.1f мм' % r.root_r) if r.root_r > 0 else 'нет'))
+            (tr('%.1f мм') % r.root_r) if r.root_r > 0 else tr('нет')))
     elif p.kind == 'annular' and r.root_r > 0:
-        lines.append('Галтель корня: %.1f мм' % r.root_r)
-    lines.append('Усилие защёлкивания ~ %s, разъединения: %s' % (ins, rem))
+        lines.append(tr('Галтель корня: %.1f мм') % r.root_r)
+    lines.append(tr('Усилие защёлкивания ~ %s, разъединения: %s') % (ins, rem))
     if p.kind == 'beam':
-        lines.append('Минимальная стенка: %.1f мм' % (p.arm_t + MIN_SKIN))
+        lines.append(tr('Минимальная стенка: %.1f мм') % (p.arm_t + MIN_SKIN))
     for w in r.warnings:
         lines.append('<font color="#c0392b">⚠ %s</font>' % w)
     return '<br>'.join(lines)
@@ -738,7 +813,7 @@ def compute_pin(p: PinParams) -> PinResult:
     else:
         L = max(p.length, floor)
         if L < l_min - 1e-6:
-            warns.append('Длина ветви меньше расчётной (%.1f мм): деформация выше допустимой.' % l_min)
+            warns.append(tr('Длина ветви меньше расчётной (%.1f мм): деформация выше допустимой.') % l_min)
     zs = z_apex - L
     ht = max(p.head_t, PIN_BRIDGE - zs)
     gap = 2.0 * h + PIN_GAP_EXTRA
@@ -752,17 +827,17 @@ def compute_pin(p: PinParams) -> PinResult:
     rem = None if p.ret_deg >= 89.5 else 2.0 * _ramp_force(P, p.ret_deg)
 
     if p.grip < PIN_MIN_GRIP:
-        warns.append('Пакет тоньше %.1f мм: упор крючка будет слишком хрупким.' % PIN_MIN_GRIP)
+        warns.append(tr('Пакет тоньше %.1f мм: упор крючка будет слишком хрупким.') % PIN_MIN_GRIP)
     if ht > PIN_MAX_HEAD:
-        warns.append('Головка выступает на %.1f мм над поверхностью: ветви должны быть длинными. '
+        warns.append(tr('Головка выступает на %.1f мм над поверхностью: ветви должны быть длинными. '
                      'Если мешает, возьмите материал с большей допустимой деформацией, '
-                     'меньший зацеп или более толстый пакет.' % ht)
+                     'меньший зацеп или более толстый пакет.') % ht)
     if p.arm_w < 3.0 * 0.4:
-        warns.append('Ширина защёлки меньше 3 линий сопла.')
+        warns.append(tr('Ширина защёлки меньше 3 линий сопла.'))
     if p.arm_t - 0.0 < 0.8:
-        warns.append('Толщина ветви меньше 0.8 мм (2 линии сопла).')
-    notes.append('Прорезь в телах: %.1f x %.1f мм' % (2.0 * hs, p.arm_w + 2.0 * c))
-    notes.append('За пакетом нужно свободное место не меньше %.1f мм (крючки и концы ветвей)'
+        warns.append(tr('Толщина ветви меньше 0.8 мм (2 линии сопла).'))
+    notes.append(tr('Прорезь в телах: %.1f x %.1f мм') % (2.0 * hs, p.arm_w + 2.0 * c))
+    notes.append(tr('За пакетом нужно свободное место не меньше %.1f мм (крючки и концы ветвей)')
                  % (z_end - p.grip + 0.5))
     return PinResult(L, strain, h, gap, so, hs, hf, zs, zb, z_apex, z_end, lead_len, ret_len, ht,
                      ins, rem, warns, notes)
@@ -805,11 +880,11 @@ def _dedupe(pts: Poly) -> Poly:
 
 
 def format_pin_report(p: PinParams, r: PinResult) -> str:
-    rem = 'не снимается' if r.removal_force is None else ('%.0f Н' % r.removal_force)
-    ins = '∞' if math.isinf(r.insertion_force) else '%.1f Н' % r.insertion_force
-    lines = ['Ветвь: <b>%.1f мм</b> (деформация %.2f %%), высота крючка %.2f мм' % (r.length, r.strain_pct, r.hook_h),
-             'Вилка %.1f x %.1f мм, головка %.1f мм' % (2.0 * r.so + 2.0 * r.hook_h, p.arm_w, r.head_t),
-             'Усилие вставки ~ %s, снятия: %s' % (ins, rem)]
+    rem = tr('не снимается') if r.removal_force is None else (tr('%.0f Н') % r.removal_force)
+    ins = '∞' if math.isinf(r.insertion_force) else tr('%.1f Н') % r.insertion_force
+    lines = [tr('Ветвь: <b>%.1f мм</b> (деформация %.2f %%), высота крючка %.2f мм') % (r.length, r.strain_pct, r.hook_h),
+             tr('Вилка %.1f x %.1f мм, головка %.1f мм') % (2.0 * r.so + 2.0 * r.hook_h, p.arm_w, r.head_t),
+             tr('Усилие вставки ~ %s, снятия: %s') % (ins, rem)]
     lines += r.notes
     for w in r.warnings:
         lines.append('<font color="#c0392b">⚠ %s</font>' % w)
@@ -821,7 +896,7 @@ def format_pin_report(p: PinParams, r: PinResult) -> str:
 # =============================================================================
 # Локальные оси профиля вращения: z - вдоль оси стойки (0 = поверхность тела, + наружу), r - радиус.
 METRIC_HOLES = {'M2': 2.2, 'M2.5': 2.7, 'M3': 3.2, 'M4': 4.3, 'M5': 5.3}
-CUSTOM_HOLE = 'Свой диаметр'
+CUSTOM_HOLE = tr('Свой диаметр')
 PCB_PLAY = 0.15         # осевой зазор над платой, мм
 PCB_FLAT = 0.6          # площадка на вершине крючка, мм
 PCB_FOOT_H = 0.8        # высота опорного основания стойки, мм
@@ -914,16 +989,16 @@ def compute_pcb(p: PcbParams) -> PcbResult:
     g_min = 2.0 * y + 0.3
     g = max(p.slot_g, g_min) if p.slot_g > 0 else max(0.8, g_min)
     if 0 < p.slot_g < g_min - 1e-6:
-        warns.append('Прорезь %.2f мм уже минимальной %.2f мм: половинки не сойдутся при заведении, '
-                     'взята минимальная.' % (p.slot_g, g_min))
+        warns.append(tr('Прорезь %.2f мм уже минимальной %.2f мм: половинки не сойдутся при заведении, '
+                     'взята минимальная.') % (p.slot_g, g_min))
     if r_s - g / 2.0 < PCB_MIN_WALL:
-        warns.append('Половинки штыря тоньше %.1f мм (%.2f мм): для такого отверстия печатная стойка хрупкая. '
-                     'Уменьшите зацеп или возьмите более гибкий материал.' % (PCB_MIN_WALL, r_s - g / 2.0))
+        warns.append(tr('Половинки штыря тоньше %.1f мм (%.2f мм): для такого отверстия печатная стойка хрупкая. '
+                     'Уменьшите зацеп или возьмите более гибкий материал.') % (PCB_MIN_WALL, r_s - g / 2.0))
 
     collar_r = p.collar_d / 2.0 if p.collar_d > 0 else r_h + 1.5
     if collar_r < r_s + 0.6:
         collar_r = r_s + 0.6
-        warns.append('Диаметр буртика увеличен до %.1f мм: он должен быть заметно больше штыря.' % (2 * collar_r))
+        warns.append(tr('Диаметр буртика увеличен до %.1f мм: он должен быть заметно больше штыря.') % (2 * collar_r))
     collar_h = min(max(p.collar_h, 0.4), p.stand_h)
     zc0 = p.stand_h - collar_h
     neck = zc0 > PCB_FOOT_H + 0.2
@@ -951,32 +1026,32 @@ def compute_pcb(p: PcbParams) -> PcbResult:
     rem = None if p.ret_deg >= 89.5 else 2.0 * _ramp_force(P, p.ret_deg)
 
     if strain > p.strain_pct + 1e-6:
-        tip = ('оставьте шейку: высота буртика должна быть заметно меньше высоты опоры'
-               if not neck else 'увеличьте высоту опоры или уменьшите зацеп')
-        warns.append('Деформация %.1f %% выше допустимой %.1f %%: гибкая длина %.1f мм, нужно не меньше %.1f мм. %s.'
+        tip = (tr('оставьте шейку: высота буртика должна быть заметно меньше высоты опоры')
+               if not neck else tr('увеличьте высоту опоры или уменьшите зацеп'))
+        warns.append(tr('Деформация %.1f %% выше допустимой %.1f %%: гибкая длина %.1f мм, нужно не меньше %.1f мм. %s.')
                      % (strain, p.strain_pct, flex, l_min, tip))
     if p.stand_h < 1.0:
-        warns.append('Высота опоры меньше 1 мм.')
+        warns.append(tr('Высота опоры меньше 1 мм.'))
 
     peg_l = p.peg_l
     hole_body = p.peg_d + p.clearance
     if p.separate:
         if p.peg_d > 2.0 * collar_r - 1.2:
-            warns.append('Штырь под клей слишком толстый для основания стойки (диаметр основания %.1f мм).'
+            warns.append(tr('Штырь под клей слишком толстый для основания стойки (диаметр основания %.1f мм).')
                          % (2.0 * collar_r))
         if p.peg_d < 1.5:
-            warns.append('Штырь под клей тоньше 1.5 мм: он оторвётся при нагрузке.')
+            warns.append(tr('Штырь под клей тоньше 1.5 мм: он оторвётся при нагрузке.'))
         room = p.wall - PCB_MIN_PEG_SKIN
         if peg_l > room:
             if room < 1.5:
-                warns.append('Стенка %.1f мм слишком тонкая для глухого отверстия под штырь.' % p.wall)
+                warns.append(tr('Стенка %.1f мм слишком тонкая для глухого отверстия под штырь.') % p.wall)
                 peg_l = max(room, 0.0)
             else:
-                notes.append('Длина штыря ограничена стенкой: %.1f мм вместо %.1f мм.' % (room, peg_l))
+                notes.append(tr('Длина штыря ограничена стенкой: %.1f мм вместо %.1f мм.') % (room, peg_l))
                 peg_l = room
 
-    notes.append('Штырь %.2f мм, крючок %.2f мм, прорезь %.2f мм' % (2.0 * r_s, 2.0 * r_hk, g))
-    notes.append('Плата садится на буртик, над платой выступает ~%.1f мм' % (z_end - p.stand_h - p.pcb_t))
+    notes.append(tr('Штырь %.2f мм, крючок %.2f мм, прорезь %.2f мм') % (2.0 * r_s, 2.0 * r_hk, g))
+    notes.append(tr('Плата садится на буртик, над платой выступает ~%.1f мм') % (z_end - p.stand_h - p.pcb_t))
     return PcbResult(r_s, r_hk, collar_r, g, neck, slot_z0, zb, z_apex, z_end, r_tip, lead_len, ret_len,
                      flex, l_min, strain, ins, rem, peg_l, hole_body, warns, notes)
 
@@ -1018,10 +1093,10 @@ def pcb_hole_polygon(p: PcbParams, r: PcbResult) -> Poly:
 
 
 def format_pcb_report(p: PcbParams, r: PcbResult) -> str:
-    rem = 'не снимается' if r.removal_force is None else ('%.0f Н' % r.removal_force)
-    ins = '∞' if math.isinf(r.insertion_force) else '%.1f Н' % r.insertion_force
-    lines = ['Гибкая длина: <b>%.1f мм</b> (нужно от %.1f мм), деформация %.1f %%' % (r.flex_len, r.l_min, r.strain_pct),
-             'Усилие установки платы ~ %s, снятия: %s' % (ins, rem)]
+    rem = tr('не снимается') if r.removal_force is None else (tr('%.0f Н') % r.removal_force)
+    ins = '∞' if math.isinf(r.insertion_force) else tr('%.1f Н') % r.insertion_force
+    lines = [tr('Гибкая длина: <b>%.1f мм</b> (нужно от %.1f мм), деформация %.1f %%') % (r.flex_len, r.l_min, r.strain_pct),
+             tr('Усилие установки платы ~ %s, снятия: %s') % (ins, rem)]
     lines += r.notes
     for w in r.warnings:
         lines.append('<font color="#c0392b">⚠ %s</font>' % w)

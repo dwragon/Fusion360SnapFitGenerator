@@ -34,24 +34,25 @@ def _load_core():
 
 
 core = _load_core()
+tr = core.tr
 
 CMD_ID = 'SnapFitGeneratorCmd'
 PANEL_ID = 'SolidCreatePanel'
 CM = 0.1  # мм -> см (внутренние единицы Fusion)
-MODE_CUT = 'Разрезать тело (плоскость / кривая)'
-MODE_SPLIT_DONE = 'Тела уже разделены (выбрать два тела)'
-MODE_PIN = 'Вставная защёлка-вилка (отдельная деталь + прорези в телах)'
-MODE_PCB = 'Стойки для печатной платы (штыри под метрические отверстия)'
-SUB_BODY = 'Стойка в теле (печатается вместе с корпусом)'
-SUB_PEG = 'Отверстие в теле + отдельная стойка (вклеивается)'
-HOLE_ITEMS = ['%s (отв. %.1f мм)' % (k, d) for k, d in core.METRIC_HOLES.items()] + [core.CUSTOM_HOLE]
+MODE_CUT = tr('Разрезать тело (плоскость / кривая)')
+MODE_SPLIT_DONE = tr('Тела уже разделены (выбрать два тела)')
+MODE_PIN = tr('Вставная защёлка-вилка (отдельная деталь + прорези в телах)')
+MODE_PCB = tr('Стойки для печатной платы (штыри под метрические отверстия)')
+SUB_BODY = tr('Стойка в теле (печатается вместе с корпусом)')
+SUB_PEG = tr('Отверстие в теле + отдельная стойка (вклеивается)')
+HOLE_ITEMS = [tr('%s (отв. %.1f мм)') % (k, d) for k, d in core.METRIC_HOLES.items()] + [core.CUSTOM_HOLE]
 DEFAULT_HOLE = HOLE_ITEMS[2]    # M3
 MODE_TEXT = {
-    MODE_PIN: 'Вилка с двумя ветвями печатается отдельно и вставляется в прорези одного или двух тел '
+    MODE_PIN: tr('Вилка с двумя ветвями печатается отдельно и вставляется в прорези одного или двух тел '
               '(стенка или пакет из двух стенок). Головка остаётся снаружи, крючки защёлкиваются за пакетом. '
-              'Точки ставь на наружной поверхности первого тела.',
-    MODE_PCB: 'Разрезной штырь с конической головкой входит в метрическое отверстие платы, плата садится на '
-              'буртик. Точки ставь на поверхности тела там, где должны стоять отверстия платы.',
+              'Точки ставь на наружной поверхности первого тела.'),
+    MODE_PCB: tr('Разрезной штырь с конической головкой входит в метрическое отверстие платы, плата садится на '
+              'буртик. Точки ставь на поверхности тела там, где должны стоять отверстия платы.'),
 }
 
 _app = None
@@ -209,9 +210,9 @@ def read_pcb_params(inputs):
 
 
 LABELS = {
-    'beam': ('Толщина балки', 'Ширина балки', 'Длина балки'),
-    'torsion': ('Толщина рычага = сторона торсиона', 'Ширина рычага', 'Длина рычага'),
-    'annular': ('Толщина воротника', 'Ширина пальца (считается)', 'Длина воротника'),
+    'beam': (tr('Толщина балки'), tr('Ширина балки'), tr('Длина балки')),
+    'torsion': (tr('Толщина рычага = сторона торсиона'), tr('Ширина рычага'), tr('Длина рычага')),
+    'annular': (tr('Толщина воротника'), tr('Ширина пальца (считается)'), tr('Длина воротника')),
 }
 
 
@@ -246,7 +247,7 @@ def apply_type(inputs, name):
     _set_label(inputs, 'arm_t', lt)
     _set_label(inputs, 'arm_w', lw)
     _set_label(inputs, 'length', ll)
-    _set_label(inputs, 'autoLen', 'Длина по расчёту')
+    _set_label(inputs, 'autoLen', tr('Длина по расчёту'))
     _find(inputs, 'slots').isVisible = kind == 'annular'
     _find(inputs, 'slot_w').isVisible = kind == 'annular'
 
@@ -268,9 +269,9 @@ def apply_mode(inputs):
     _find(inputs, 'params').isVisible = snap
     _find(inputs, 'pinParams').isVisible = pin
     _find(inputs, 'pcbParams').isVisible = pcb
-    _set_label(inputs, 'body', 'Тело (первое в пакете)' if pin else ('Тело корпуса' if pcb else 'Тело'))
-    _set_label(inputs, 'body2', 'Второе тело в пакете (если есть)' if pin else 'Второе тело')
-    _set_label(inputs, 'pts', 'Точки вилок' if pin else ('Центры стоек' if pcb else 'Точки защёлок'))
+    _set_label(inputs, 'body', tr('Тело (первое в пакете)') if pin else (tr('Тело корпуса') if pcb else tr('Тело')))
+    _set_label(inputs, 'body2', tr('Второе тело в пакете (если есть)') if pin else tr('Второе тело'))
+    _set_label(inputs, 'pts', tr('Точки вилок') if pin else (tr('Центры стоек') if pcb else tr('Точки защёлок')))
     apply_pin(inputs)
     apply_pcb(inputs)
 
@@ -339,7 +340,7 @@ def update_info(inputs):
 
 # ------------------------------------------------------- память настроек ---
 SETTINGS_VERSION = 1
-DROP_IDS = ('mode', 'material', 'ctype', 'pc_hole', 'pc_sub')
+DROP_IDS = ('mode', 'material', 'ctype', 'pc_hole', 'pc_sub', 'lang')
 BOOL_IDS = ('projPts', 'bothSides', 'autoWall', 'autoLen', 'fillet', 'pins', 'through', 'flip',
             'pn_auto', 'pn_autoLen', 'pn_rot', 'pc_autoH', 'pc_autoWall', 'pc_rot')
 MM_IDS = ('wall', 'arm_t', 'arm_w', 'engage', 'clearance', 'length', 'slot_w',
@@ -360,7 +361,7 @@ def factory_state():
     m = core.MATERIALS[core.DEFAULT_MATERIAL]
     return {
         'drop': {'mode': MODE_CUT, 'material': core.DEFAULT_MATERIAL, 'ctype': core.DEFAULT_TYPE,
-                 'pc_hole': DEFAULT_HOLE, 'pc_sub': SUB_BODY},
+                 'pc_hole': DEFAULT_HOLE, 'pc_sub': SUB_BODY, 'lang': core.LANG_AUTO},
         'bool': {'projPts': True, 'bothSides': False, 'autoWall': True, 'autoLen': True,
                  'fillet': True, 'pins': True, 'through': True, 'flip': False,
                  'pn_auto': True, 'pn_autoLen': True, 'pn_rot': False,
@@ -500,152 +501,156 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             vi = adsk.core.ValueInput
 
             md = inputs.addDropDownCommandInput(
-                'mode', 'Режим', adsk.core.DropDownStyles.TextListDropDownStyle)
+                'mode', tr('Режим'), adsk.core.DropDownStyles.TextListDropDownStyle)
             md.listItems.add(MODE_CUT, True)
             md.listItems.add(MODE_SPLIT_DONE, False)
             md.listItems.add(MODE_PIN, False)
             md.listItems.add(MODE_PCB, False)
 
-            s = inputs.addSelectionInput('body', 'Тело', 'Тело, которое нужно разрезать '
-                                         '(в режиме готовых тел - первое из двух тел)')
+            s = inputs.addSelectionInput('body', tr('Тело'), tr('Тело, которое нужно разрезать '
+                                         '(в режиме готовых тел - первое из двух тел)'))
             s.addSelectionFilter(sc.SolidBodies)
             s.setSelectionLimits(1, 1)
 
-            s = inputs.addSelectionInput('body2', 'Второе тело', 'Вторая половина корпуса')
+            s = inputs.addSelectionInput('body2', tr('Второе тело'), tr('Вторая половина корпуса'))
             s.addSelectionFilter(sc.SolidBodies)
             s.setSelectionLimits(0, 1)       # обязательность проверяет ValidateHandler
             s.isVisible = False
 
             s = inputs.addSelectionInput(
-                'cut', 'Плоскость / кривая реза',
-                'Конструкторская плоскость, грань, поверхность или эскизная кривая')
+                'cut', tr('Плоскость / кривая реза'),
+                tr('Конструкторская плоскость, грань, поверхность или эскизная кривая'))
             s.addSelectionFilter(sc.ConstructionPlanes)
             s.addSelectionFilter(sc.Faces)
             s.addSelectionFilter(sc.SketchCurves)
             s.setSelectionLimits(0, 0)   # можно выбрать несколько линий эскиза; обязательность - в ValidateHandler
 
             s = inputs.addSelectionInput(
-                'pts', 'Точки защёлок',
-                'Точки на поверхности стенки у линии реза. Балка вырастет на той половине, '
-                'на которой лежит точка (кнопка «Реверс» меняет половины)')
+                'pts', tr('Точки защёлок'),
+                tr('Точки на поверхности стенки у линии реза. Балка вырастет на той половине, '
+                'на которой лежит точка (кнопка «Реверс» меняет половины)'))
             s.addSelectionFilter(sc.SketchPoints)
             s.addSelectionFilter(sc.ConstructionPoints)
             s.addSelectionFilter(sc.Vertices)
             s.setSelectionLimits(0, 0)   # обязательность проверяет ValidateHandler: у кольцевых типов точки не нужны
 
             s = inputs.addSelectionInput(
-                'ring', 'Кольцевое ребро на шве',
-                'Круговое ребро на наружной цилиндрической поверхности корпуса. Ось и радиус кольца берутся '
+                'ring', tr('Кольцевое ребро на шве'),
+                tr('Круговое ребро на наружной цилиндрической поверхности корпуса. Ось и радиус кольца берутся '
                 'из ребра; воротник вырастет на первом теле (в режиме разреза - на половине, где лежит ребро), '
-                'кнопка «Реверс» меняет половины')
+                'кнопка «Реверс» меняет половины'))
             s.addSelectionFilter(sc.CircularEdges)
             s.setSelectionLimits(0, 0)
             s.isVisible = False
 
-            b = inputs.addBoolValueInput('projPts', 'Режим кривой: точки на кривой, стенки найти самому',
+            b = inputs.addBoolValueInput('projPts', tr('Режим кривой: точки на кривой, стенки найти самому'),
                                          True, '', True)
-            b.tooltip = 'Для эскизной кривой реза'
-            b.tooltipDescription = ('Ставьте точки прямо на кривую в эскизе. Аддин пойдёт от точки '
+            b.tooltip = tr('Для эскизной кривой реза')
+            b.tooltipDescription = (tr('Ставьте точки прямо на кривую в эскизе. Аддин пойдёт от точки '
                                     'перпендикулярно плоскости эскиза и найдёт наружную стенку тела. '
-                                    'Точки, уже лежащие на стенке, остаются как есть.')
-            inputs.addBoolValueInput('bothSides', 'Защёлки на обеих противоположных стенках', True, '', False)
+                                    'Точки, уже лежащие на стенке, остаются как есть.'))
+            inputs.addBoolValueInput('bothSides', tr('Защёлки на обеих противоположных стенках'), True, '', False)
 
             dd = inputs.addDropDownCommandInput(
-                'material', 'Материал печати', adsk.core.DropDownStyles.TextListDropDownStyle)
+                'material', tr('Материал печати'), adsk.core.DropDownStyles.TextListDropDownStyle)
             for name in core.MATERIALS:
                 dd.listItems.add(name, name == core.DEFAULT_MATERIAL)
 
             tt = inputs.addDropDownCommandInput(
-                'ctype', 'Тип защёлки', adsk.core.DropDownStyles.TextListDropDownStyle)
+                'ctype', tr('Тип защёлки'), adsk.core.DropDownStyles.TextListDropDownStyle)
             for name in core.TYPES:
                 tt.listItems.add(name, name == core.DEFAULT_TYPE)
-            tt.tooltip = 'Тип защёлки'
+            tt.tooltip = tr('Тип защёлки')
             tt.tooltipDescription = '\n\n'.join('%s: %s' % (k, v['text']) for k, v in core.TYPES.items())
 
-            g = inputs.addGroupCommandInput('params', 'Параметры защёлки').children
+            g = inputs.addGroupCommandInput('params', tr('Параметры защёлки')).children
             m = core.MATERIALS[core.DEFAULT_MATERIAL]
             ret0 = core.TYPES[core.DEFAULT_TYPE]['ret']
-            g.addBoolValueInput('autoWall', 'Толщину стенки брать с модели', True, '', True)
-            g.addValueInput('wall', 'Толщина стенки (вручную)', 'mm', vi.createByReal(2.4 * CM))
-            g.addValueInput('arm_t', 'Толщина балки', 'mm', vi.createByReal(m['arm_t'] * CM))
-            g.addValueInput('arm_w', 'Ширина балки', 'mm', vi.createByReal(5.0 * CM))
-            g.addValueInput('engage', 'Величина зацепа', 'mm', vi.createByReal(m['engage'] * CM))
-            g.addValueInput('clearance', 'Зазор', 'mm', vi.createByReal(m['clearance'] * CM))
-            g.addFloatSpinnerCommandInput('strain', 'Допустимая деформация, %', '',
+            g.addBoolValueInput('autoWall', tr('Толщину стенки брать с модели'), True, '', True)
+            g.addValueInput('wall', tr('Толщина стенки (вручную)'), 'mm', vi.createByReal(2.4 * CM))
+            g.addValueInput('arm_t', tr('Толщина балки'), 'mm', vi.createByReal(m['arm_t'] * CM))
+            g.addValueInput('arm_w', tr('Ширина балки'), 'mm', vi.createByReal(5.0 * CM))
+            g.addValueInput('engage', tr('Величина зацепа'), 'mm', vi.createByReal(m['engage'] * CM))
+            g.addValueInput('clearance', tr('Зазор'), 'mm', vi.createByReal(m['clearance'] * CM))
+            g.addFloatSpinnerCommandInput('strain', tr('Допустимая деформация, %'), '',
                                           0.1, 10.0, 0.1, m['strain'])
-            g.addFloatSpinnerCommandInput('E', 'Модуль E, МПа', '', 100.0, 5000.0, 100.0, m['E'])
-            g.addValueInput('lead', 'Угол заведения', 'deg', vi.createByReal(math.radians(m['lead'])))
-            g.addValueInput('ret', 'Угол возврата (90 = неразъёмно)', 'deg',
+            g.addFloatSpinnerCommandInput('E', tr('Модуль E, МПа'), '', 100.0, 5000.0, 100.0, m['E'])
+            g.addValueInput('lead', tr('Угол заведения'), 'deg', vi.createByReal(math.radians(m['lead'])))
+            g.addValueInput('ret', tr('Угол возврата (90 = неразъёмно)'), 'deg',
                             vi.createByReal(math.radians(ret0)))
-            g.addFloatSpinnerCommandInput('taper', 'Конус: толщина на конце, % от корня', '',
+            g.addFloatSpinnerCommandInput('taper', tr('Конус: толщина на конце, % от корня'), '',
                                           30.0, 100.0, 5.0, 50.0)
-            g.addBoolValueInput('fillet', 'Скругление корня балки', True, '', True)
-            g.addBoolValueInput('pins', 'Направляющие штифты по бокам', True, '', True)
-            g.addIntegerSpinnerCommandInput('slots', 'Прорезей в воротнике (0 = цельное кольцо)', 0, 36, 1, 8)
-            g.addValueInput('slot_w', 'Ширина прорези', 'mm', vi.createByReal(1.5 * CM))
-            g.addBoolValueInput('autoLen', 'Длина балки по расчёту', True, '', True)
-            g.addValueInput('length', 'Длина балки', 'mm', vi.createByReal(10.0 * CM))
-            g.addBoolValueInput('through', 'Сквозное окно в стенке', True, '', True)
-            g.addBoolValueInput('flip', 'Реверс: балка на другой половине', True, '', False)
+            g.addBoolValueInput('fillet', tr('Скругление корня балки'), True, '', True)
+            g.addBoolValueInput('pins', tr('Направляющие штифты по бокам'), True, '', True)
+            g.addIntegerSpinnerCommandInput('slots', tr('Прорезей в воротнике (0 = цельное кольцо)'), 0, 36, 1, 8)
+            g.addValueInput('slot_w', tr('Ширина прорези'), 'mm', vi.createByReal(1.5 * CM))
+            g.addBoolValueInput('autoLen', tr('Длина балки по расчёту'), True, '', True)
+            g.addValueInput('length', tr('Длина балки'), 'mm', vi.createByReal(10.0 * CM))
+            g.addBoolValueInput('through', tr('Сквозное окно в стенке'), True, '', True)
+            g.addBoolValueInput('flip', tr('Реверс: балка на другой половине'), True, '', False)
 
             # --- вставная защёлка-вилка
-            pn = inputs.addGroupCommandInput('pinParams', 'Параметры вилки').children
-            pn.addBoolValueInput('pn_auto', 'Толщину пакета брать с модели', True, '', True)
-            pn.addValueInput('pn_grip', 'Толщина пакета (вручную)', 'mm', vi.createByReal(3.0 * CM))
-            pn.addValueInput('pn_arm_t', 'Толщина ветви', 'mm', vi.createByReal(m['arm_t'] * CM))
-            pn.addValueInput('pn_arm_w', 'Ширина вилки', 'mm', vi.createByReal(6.0 * CM))
-            pn.addValueInput('pn_engage', 'Перекрытие крючка', 'mm', vi.createByReal(m['hook'] * CM))
-            pn.addValueInput('pn_clearance', 'Зазор в прорези', 'mm', vi.createByReal(m['clearance'] * CM))
-            pn.addFloatSpinnerCommandInput('pn_strain', 'Допустимая деформация, %', '',
+            pn = inputs.addGroupCommandInput('pinParams', tr('Параметры вилки')).children
+            pn.addBoolValueInput('pn_auto', tr('Толщину пакета брать с модели'), True, '', True)
+            pn.addValueInput('pn_grip', tr('Толщина пакета (вручную)'), 'mm', vi.createByReal(3.0 * CM))
+            pn.addValueInput('pn_arm_t', tr('Толщина ветви'), 'mm', vi.createByReal(m['arm_t'] * CM))
+            pn.addValueInput('pn_arm_w', tr('Ширина вилки'), 'mm', vi.createByReal(6.0 * CM))
+            pn.addValueInput('pn_engage', tr('Перекрытие крючка'), 'mm', vi.createByReal(m['hook'] * CM))
+            pn.addValueInput('pn_clearance', tr('Зазор в прорези'), 'mm', vi.createByReal(m['clearance'] * CM))
+            pn.addFloatSpinnerCommandInput('pn_strain', tr('Допустимая деформация, %'), '',
                                            0.1, 10.0, 0.1, m['strain'])
-            pn.addFloatSpinnerCommandInput('pn_E', 'Модуль E, МПа', '', 100.0, 5000.0, 100.0, m['E'])
-            pn.addValueInput('pn_lead', 'Угол заведения', 'deg', vi.createByReal(math.radians(m['lead'])))
-            pn.addValueInput('pn_ret', 'Угол возврата (90 = неразъёмно)', 'deg',
+            pn.addFloatSpinnerCommandInput('pn_E', tr('Модуль E, МПа'), '', 100.0, 5000.0, 100.0, m['E'])
+            pn.addValueInput('pn_lead', tr('Угол заведения'), 'deg', vi.createByReal(math.radians(m['lead'])))
+            pn.addValueInput('pn_ret', tr('Угол возврата (90 = неразъёмно)'), 'deg',
                              vi.createByReal(math.radians(60.0)))
-            pn.addBoolValueInput('pn_autoLen', 'Длина ветви по расчёту', True, '', True)
-            pn.addValueInput('pn_length', 'Длина ветви', 'mm', vi.createByReal(8.0 * CM))
-            pn.addValueInput('pn_head_t', 'Толщина головки', 'mm', vi.createByReal(2.0 * CM))
-            pn.addValueInput('pn_head_over', 'Вылет головки за прорезь', 'mm', vi.createByReal(2.0 * CM))
-            pn.addBoolValueInput('pn_rot', 'Повернуть вилку на 90°', True, '', False)
+            pn.addBoolValueInput('pn_autoLen', tr('Длина ветви по расчёту'), True, '', True)
+            pn.addValueInput('pn_length', tr('Длина ветви'), 'mm', vi.createByReal(8.0 * CM))
+            pn.addValueInput('pn_head_t', tr('Толщина головки'), 'mm', vi.createByReal(2.0 * CM))
+            pn.addValueInput('pn_head_over', tr('Вылет головки за прорезь'), 'mm', vi.createByReal(2.0 * CM))
+            pn.addBoolValueInput('pn_rot', tr('Повернуть вилку на 90°'), True, '', False)
             inputs.itemById('pinParams').isVisible = False
 
             # --- стойки для печатной платы
-            pc = inputs.addGroupCommandInput('pcbParams', 'Параметры стойки для платы').children
-            hd = pc.addDropDownCommandInput('pc_hole', 'Отверстие в плате',
+            pc = inputs.addGroupCommandInput('pcbParams', tr('Параметры стойки для платы')).children
+            hd = pc.addDropDownCommandInput('pc_hole', tr('Отверстие в плате'),
                                             adsk.core.DropDownStyles.TextListDropDownStyle)
             for name in HOLE_ITEMS:
                 hd.listItems.add(name, name == DEFAULT_HOLE)
-            pc.addValueInput('pc_hole_d', 'Диаметр отверстия платы', 'mm', vi.createByReal(3.2 * CM))
-            pc.addValueInput('pc_pcb_t', 'Толщина платы', 'mm', vi.createByReal(1.6 * CM))
-            pc.addBoolValueInput('pc_autoH', 'Высоту опоры подобрать по расчёту', True, '', True)
-            pc.addValueInput('pc_stand_h', 'Высота опоры платы над телом', 'mm', vi.createByReal(5.5 * CM))
-            pc.addValueInput('pc_collar_d', 'Диаметр буртика (0 = авто)', 'mm', vi.createByReal(0.0))
-            pc.addValueInput('pc_collar_h', 'Высота буртика под платой', 'mm', vi.createByReal(1.2 * CM))
-            pc.addValueInput('pc_hook', 'Перекрытие крючка', 'mm', vi.createByReal(m['hook'] * CM))
-            pc.addValueInput('pc_slot', 'Ширина прорези (0 = авто)', 'mm', vi.createByReal(0.0))
-            pc.addValueInput('pc_clearance', 'Зазор штыря в отверстии (по диаметру)', 'mm',
+            pc.addValueInput('pc_hole_d', tr('Диаметр отверстия платы'), 'mm', vi.createByReal(3.2 * CM))
+            pc.addValueInput('pc_pcb_t', tr('Толщина платы'), 'mm', vi.createByReal(1.6 * CM))
+            pc.addBoolValueInput('pc_autoH', tr('Высоту опоры подобрать по расчёту'), True, '', True)
+            pc.addValueInput('pc_stand_h', tr('Высота опоры платы над телом'), 'mm', vi.createByReal(5.5 * CM))
+            pc.addValueInput('pc_collar_d', tr('Диаметр буртика (0 = авто)'), 'mm', vi.createByReal(0.0))
+            pc.addValueInput('pc_collar_h', tr('Высота буртика под платой'), 'mm', vi.createByReal(1.2 * CM))
+            pc.addValueInput('pc_hook', tr('Перекрытие крючка'), 'mm', vi.createByReal(m['hook'] * CM))
+            pc.addValueInput('pc_slot', tr('Ширина прорези (0 = авто)'), 'mm', vi.createByReal(0.0))
+            pc.addValueInput('pc_clearance', tr('Зазор штыря в отверстии (по диаметру)'), 'mm',
                              vi.createByReal(m['clearance'] * CM))
-            pc.addFloatSpinnerCommandInput('pc_strain', 'Допустимая деформация, %', '',
+            pc.addFloatSpinnerCommandInput('pc_strain', tr('Допустимая деформация, %'), '',
                                            0.1, 10.0, 0.1, m['strain'])
-            pc.addFloatSpinnerCommandInput('pc_E', 'Модуль E, МПа', '', 100.0, 5000.0, 100.0, m['E'])
-            pc.addValueInput('pc_lead', 'Угол заведения', 'deg', vi.createByReal(math.radians(m['lead'])))
-            pc.addValueInput('pc_ret', 'Угол возврата (90 = неразъёмно)', 'deg',
+            pc.addFloatSpinnerCommandInput('pc_E', tr('Модуль E, МПа'), '', 100.0, 5000.0, 100.0, m['E'])
+            pc.addValueInput('pc_lead', tr('Угол заведения'), 'deg', vi.createByReal(math.radians(m['lead'])))
+            pc.addValueInput('pc_ret', tr('Угол возврата (90 = неразъёмно)'), 'deg',
                              vi.createByReal(math.radians(60.0)))
-            sd = pc.addDropDownCommandInput('pc_sub', 'Исполнение',
+            sd = pc.addDropDownCommandInput('pc_sub', tr('Исполнение'),
                                             adsk.core.DropDownStyles.TextListDropDownStyle)
             sd.listItems.add(SUB_BODY, True)
             sd.listItems.add(SUB_PEG, False)
-            pc.addBoolValueInput('pc_autoWall', 'Толщину стенки под стойкой брать с модели', True, '', True)
-            pc.addValueInput('pc_wall', 'Толщина стенки под стойкой (вручную)', 'mm',
+            pc.addBoolValueInput('pc_autoWall', tr('Толщину стенки под стойкой брать с модели'), True, '', True)
+            pc.addValueInput('pc_wall', tr('Толщина стенки под стойкой (вручную)'), 'mm',
                              vi.createByReal(5.0 * CM))
-            pc.addValueInput('pc_peg_d', 'Диаметр клеевого штыря', 'mm', vi.createByReal(3.0 * CM))
-            pc.addValueInput('pc_peg_l', 'Длина клеевого штыря', 'mm', vi.createByReal(4.0 * CM))
-            pc.addBoolValueInput('pc_rot', 'Повернуть прорезь на 90°', True, '', False)
+            pc.addValueInput('pc_peg_d', tr('Диаметр клеевого штыря'), 'mm', vi.createByReal(3.0 * CM))
+            pc.addValueInput('pc_peg_l', tr('Длина клеевого штыря'), 'mm', vi.createByReal(4.0 * CM))
+            pc.addBoolValueInput('pc_rot', tr('Повернуть прорезь на 90°'), True, '', False)
             inputs.itemById('pcbParams').isVisible = False
 
-            inputs.addBoolValueInput('resetDefaults', 'Сбросить настройки к заводским (отметь галку)',
+            lg = inputs.addDropDownCommandInput('lang', tr('Language / Язык (применится после перезапуска аддина)'),
+                                                adsk.core.DropDownStyles.TextListDropDownStyle)
+            for name in (core.LANG_AUTO, core.LANG_EN, core.LANG_RU):
+                lg.listItems.add(name, name == core.LANG_AUTO)
+            inputs.addBoolValueInput('resetDefaults', tr('Сбросить настройки к заводским (отметь галку)'),
                                      True, '', False)
-            inputs.addTextBoxCommandInput('info', 'Расчёт', '', 12, True)
+            inputs.addTextBoxCommandInput('info', tr('Расчёт'), '', 12, True)
             apply_state(inputs, merge_state(factory_state(), load_settings()))
             update_info(inputs)
 
@@ -656,7 +661,7 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
                 ev.add(h)
                 _handlers.append(h)
         except Exception:
-            _ui.messageBox('Ошибка создания диалога:\n' + traceback.format_exc())
+            _ui.messageBox(tr('Ошибка создания диалога:\n') + traceback.format_exc())
 
 
 class InputChangedHandler(adsk.core.InputChangedEventHandler):
@@ -749,7 +754,7 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
                 if not split_mode:
                     cut_in = _find(inputs, 'cut')
                     if cut_in.selectionCount != 1:
-                        raise UserError('Для кольцевой защёлки выберите одну плоскость или плоскую грань реза.')
+                        raise UserError(tr('Для кольцевой защёлки выберите одну плоскость или плоскую грань реза.'))
                     cut = cut_in.selection(0).entity
                 build_annular(design, body, body2, cut, rings, params, flip, auto_wall)
                 return
@@ -763,14 +768,14 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             cuts = [cut_in.selection(k).entity for k in range(cut_in.selectionCount)]
             cut = cuts[0]
             if len(cuts) > 1 and not all(hasattr(c, 'parentSketch') for c in cuts):
-                raise UserError('Несколько объектов реза можно выбирать только для линий эскиза. '
-                                'Плоскость или грань выбирайте по одной.')
+                raise UserError(tr('Несколько объектов реза можно выбирать только для линий эскиза. '
+                                'Плоскость или грань выбирайте по одной.'))
             build(design, body, cut, pts, params, flip, auto_wall,
                   _find(inputs, 'projPts').value, _find(inputs, 'bothSides').value, cuts)
         except Exception as e:
             msg = str(e) if isinstance(e, UserError) else traceback.format_exc()
-            _ui.messageBox('Не удалось построить защёлки:\n\n' + msg +
-                           '\n\nИзменения откатаны (если нет - Ctrl+Z).')
+            _ui.messageBox(tr('Не удалось построить защёлки:\n\n') + msg +
+                           tr('\n\nИзменения откатаны (если нет - Ctrl+Z).'))
 
 
 # --------------------------------------------------------------- geometry ---
@@ -785,7 +790,7 @@ def _point_of(e):
         o = cls.cast(e)
         if o:
             return getattr(o, attr)
-    raise UserError('Неподдерживаемый тип точки.')
+    raise UserError(tr('Неподдерживаемый тип точки.'))
 
 
 def _fresh(design, ent):
@@ -803,10 +808,10 @@ def _face_normal_at(face, q):
     ev = face.evaluator
     ok, prm = ev.getParameterAtPoint(q)
     if not ok:
-        raise UserError('Не удалось получить нормаль поверхности.')
+        raise UserError(tr('Не удалось получить нормаль поверхности.'))
     ok, nrm = ev.getNormalAtParameter(prm)
     if not ok:
-        raise UserError('Не удалось получить нормаль поверхности.')
+        raise UserError(tr('Не удалось получить нормаль поверхности.'))
     return nrm
 
 
@@ -837,8 +842,8 @@ def _outer_normal(body, d, p):
     cands = _closest(body.faces, p)
     mind = min(c[0] for c in cands)
     if mind > 0.3:  # 3 мм
-        raise UserError('Точка лежит дальше 3 мм от поверхности тела. Поставьте её на внешнюю '
-                        'поверхность стенки в месте реза.')
+        raise UserError(tr('Точка лежит дальше 3 мм от поверхности тела. Поставьте её на внешнюю '
+                        'поверхность стенки в месте реза.'))
     near = [c for c in cands if c[0] <= mind + 0.001]
     scored = []
     for dist, f, q in near:
@@ -875,7 +880,7 @@ def _resolve_cut_tool(design, comp, body, cut_ent, cuts=None):
         feat = exts.add(ei)
         surf = feat.bodies.item(0)
         return surf, [surf.faces.item(i) for i in range(surf.faces.count)], surf
-    raise UserError('Неподдерживаемый тип инструмента реза.')
+    raise UserError(tr('Неподдерживаемый тип инструмента реза.'))
 
 
 def _measure_wall(comp, q_out, N):
@@ -944,7 +949,7 @@ def _make_tool(comp, frame, poly_mm, width_mm, off_t=0.0):
 
     _draw_polygon(sk, [to_sk(dd, nn) for dd, nn in poly_mm])
     if sk.profiles.count < 1:
-        raise UserError('Профиль защёлки не замкнулся (проверьте параметры).')
+        raise UserError(tr('Профиль защёлки не замкнулся (проверьте параметры).'))
 
     exts = comp.features.extrudeFeatures
     ei = exts.createInput(sk.profiles.item(0), adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
@@ -980,7 +985,7 @@ def _largest_profile(sk):
         if best is None or a > best_a:
             best, best_a = p, a
     if best is None:
-        raise UserError('Профиль не найден.')
+        raise UserError(tr('Профиль не найден.'))
     return best
 
 
@@ -1000,8 +1005,8 @@ def _revolve_full(comp, prof, axis_line):
             return revs.add(ri).bodies.item(0)
         except Exception as e:
             errors.append(str(e).strip().splitlines()[-1] if str(e).strip() else repr(e))
-    raise UserError('Fusion не смог выполнить вращение профиля (Revolve): %s. Проверьте, что ребро кольца '
-                    'лежит на цилиндре, а размеры воротника помещаются в стенку.' % '; '.join(errors[:2]))
+    raise UserError(tr('Fusion не смог выполнить вращение профиля (Revolve): %s. Проверьте, что ребро кольца '
+                    'лежит на цилиндре, а размеры воротника помещаются в стенку.') % '; '.join(errors[:2]))
 
 
 def _make_ring(comp, anchor, D, U, R_mm, poly_mm):
@@ -1017,10 +1022,10 @@ def _make_ring(comp, anchor, D, U, R_mm, poly_mm):
         return adsk.core.Point3D.create(sp.x, sp.y, 0)
 
     if min(n for _, n in poly_mm) + R_mm < 0.5:
-        raise UserError('Радиус кольца %.1f мм слишком мал для такой стенки и воротника.' % R_mm)
+        raise UserError(tr('Радиус кольца %.1f мм слишком мал для такой стенки и воротника.') % R_mm)
     _draw_polygon(sk, [to_sk(dd, R_mm + nn) for dd, nn in poly_mm])
     if sk.profiles.count < 1:
-        raise UserError('Профиль кольцевой защёлки не замкнулся (проверьте параметры).')
+        raise UserError(tr('Профиль кольцевой защёлки не замкнулся (проверьте параметры).'))
     d_lo = min(d for d, _ in poly_mm) - 2.0
     d_hi = max(d for d, _ in poly_mm) + 2.0
     # ось добавляем ДО чтения профиля: новая кривая пересчитывает профили эскиза и старые ссылки портятся
@@ -1117,7 +1122,7 @@ def _frame_cut(body, p, cut_ent, faces, flip):
     q_cut, d = _cut_frame(cut_ent, faces, q_out)
     q_out, n_raw = _outer_normal(body, d, p)
     N = _perp_unit(_v(n_raw.x, n_raw.y, n_raw.z), d,
-                   'В одной из точек стенка параллельна плоскости реза: защёлку там построить нельзя.')
+                   tr('В одной из точек стенка параллельна плоскости реза: защёлку там построить нельзя.'))
     sd = _v(q_out.x - q_cut.x, q_out.y - q_cut.y, q_out.z - q_cut.z).dotProduct(d)
     D = d.copy()
     if sd < -SIDE_EPS:
@@ -1135,7 +1140,7 @@ def _frame_split(body_1, body_2, p):
     m1, f1 = _near_faces(body_1, p)
     m2, f2 = _near_faces(body_2, p)
     if min(m1, m2) > 0.3:
-        raise UserError('Точка лежит дальше 3 мм от обоих тел. Поставьте её на поверхность одного из тел.')
+        raise UserError(tr('Точка лежит дальше 3 мм от обоих тел. Поставьте её на поверхность одного из тел.'))
     if m2 + 0.002 < m1:
         beam, other, faces = body_2, body_1, f2
     else:
@@ -1163,12 +1168,12 @@ def _frame_split(body_1, body_2, p):
             if n.dotProduct(v) > 0.3:
                 contact = (q, n)
     if contact is None:
-        raise UserError('Не удалось найти стык двух тел у точки. Тела должны касаться друг друга '
-                        'или находиться рядом, а точка лежать на краю стыка.')
+        raise UserError(tr('Не удалось найти стык двух тел у точки. Тела должны касаться друг друга '
+                        'или находиться рядом, а точка лежать на краю стыка.'))
     q_c, n_c = contact
     D = _v(-n_c.x, -n_c.y, -n_c.z)
     f, q_out, n_w = min(faces, key=lambda t: abs(t[2].dotProduct(D)))
-    N = _perp_unit(n_w, D, 'В одной из точек стенка параллельна стыку тел: защёлку там построить нельзя.')
+    N = _perp_unit(n_w, D, tr('В одной из точек стенка параллельна стыку тел: защёлку там построить нельзя.'))
     return beam, other, q_c, D, N, q_out
 
 
@@ -1177,12 +1182,12 @@ def _apply_auto_wall(P, walls, notes):
     if len(good) == len(walls) and good:
         P.wall = min(good)
         if max(good) - min(good) > 0.3:
-            notes.append('Толщина стенки в точках разная (%.1f-%.1f мм), взята минимальная.'
+            notes.append(tr('Толщина стенки в точках разная (%.1f-%.1f мм), взята минимальная.')
                          % (min(good), max(good)))
-        notes.append('Толщина стенки по модели: %.2f мм.' % P.wall)
+        notes.append(tr('Толщина стенки по модели: %.2f мм.') % P.wall)
     else:
-        notes.append('Не удалось измерить стенку по модели, использовано значение из поля '
-                     '(%.1f мм). Проверьте его.' % P.wall)
+        notes.append(tr('Не удалось измерить стенку по модели, использовано значение из поля '
+                     '(%.1f мм). Проверьте его.') % P.wall)
 
 
 def _place_snaps(design, comp, frames, P, res):
@@ -1234,29 +1239,29 @@ def _rollback(design, start):
 
 
 KIND_TEXT = {
-    'beam': ('защёлк(и)', 'длина балки'),
-    'torsion': ('торсионных защёлк(и)', 'длина рычага'),
-    'annular': ('кольцевых защёлк(и)', 'длина воротника'),
+    'beam': (tr('защёлк(и)'), tr('длина балки')),
+    'torsion': (tr('торсионных защёлк(и)'), tr('длина рычага')),
+    'annular': (tr('кольцевых защёлк(и)'), tr('длина воротника')),
 }
 
 
 def _report(count, res, notes, kind='beam'):
     what, ln = KIND_TEXT.get(kind, KIND_TEXT['beam'])
-    msg = 'Готово: %d %s, %s %.1f мм.' % (count, what, ln, res.length)
+    msg = tr('Готово: %d %s, %s %.1f мм.') % (count, what, ln, res.length)
     extra = list(res.notes) + list(notes)
     if extra:
         msg += '\n' + '\n'.join(extra)
     if res.warnings:
-        msg += '\n\nПредупреждения:\n- ' + '\n- '.join(res.warnings)
+        msg += tr('\n\nПредупреждения:\n- ') + '\n- '.join(res.warnings)
     _ui.messageBox(msg)
 
 
 def _check_design(design, *bodies):
     if design is None or design.designType != adsk.fusion.DesignTypes.ParametricDesignType:
-        raise UserError('Включите историю (параметрический режим): Capture Design History.')
+        raise UserError(tr('Включите историю (параметрический режим): Capture Design History.'))
     for b in bodies:
         if b.assemblyContext is not None:
-            raise UserError('Выберите тело корневого компонента (или активируйте нужный компонент).')
+            raise UserError(tr('Выберите тело корневого компонента (или активируйте нужный компонент).'))
 
 
 def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both=False, cuts=None):
@@ -1277,11 +1282,11 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both
                     continue
                 found = _project_to_walls(comp, body, cut_ent, p, both)
                 if not found:
-                    raise UserError('От точки на кривой не найдена стенка тела вдоль оси '
-                                    'выдавливания. Проверьте положение точки.')
+                    raise UserError(tr('От точки на кривой не найдена стенка тела вдоль оси '
+                                    'выдавливания. Проверьте положение точки.'))
                 new_pts += found
             if len(new_pts) != len(pts):
-                notes.append('Точки на кривой: найдено мест для защёлок - %d.' % len(new_pts))
+                notes.append(tr('Точки на кривой: найдено мест для защёлок - %d.') % len(new_pts))
             pts = new_pts
 
         # 1. Кадры защёлок (до разреза, по исходному телу)
@@ -1295,8 +1300,8 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both
         if auto_wall:
             _apply_auto_wall(P, walls, notes)
         if on_cut:
-            notes.append('Точек на самой линии реза: %d. Для них сторона балки не определяется по '
-                         'положению точки; если балка выросла не там, включите «Реверс».' % on_cut)
+            notes.append(tr('Точек на самой линии реза: %d. Для них сторона балки не определяется по '
+                         'положению точки; если балка выросла не там, включите «Реверс».') % on_cut)
         res = core.compute(P)
 
         # 2. Разрез
@@ -1304,8 +1309,8 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both
         sf = sbs.add(sbs.createInput(body, tool, True))
         halves = [sf.bodies.item(i) for i in range(sf.bodies.count)]
         if len(halves) < 2:
-            raise UserError('Разрез не разделил тело на части. Проверьте, что плоскость/кривая '
-                            'пересекает тело целиком.')
+            raise UserError(tr('Разрез не разделил тело на части. Проверьте, что плоскость/кривая '
+                            'пересекает тело целиком.'))
         if surf is not None:
             surf.isLightBulbOn = False
 
@@ -1323,13 +1328,13 @@ def build(design, body, cut_ent, pts, P, flip, auto_wall=False, proj=False, both
             body_a = side_body(_pt_add(mid, D, 0.3 * CM))
             body_b = side_body(_pt_add(mid, D, -0.3 * CM))
             if body_a is None or body_b is None or body_a.entityToken == body_b.entityToken:
-                raise UserError('Точка %d: не удалось определить половины корпуса около защёлки. '
-                                'Проверьте толщину стенки и положение точки.' % (idx + 1))
+                raise UserError(tr('Точка %d: не удалось определить половины корпуса около защёлки. '
+                                'Проверьте толщину стенки и положение точки.') % (idx + 1))
             frames.append((anchor, D, N, body_a, body_b))
         _place_snaps(design, comp, frames, P, res)
 
         if _group_timeline(design, start):
-            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
+            notes.append(tr('Все операции собраны в группу «%s» на таймлайне.') % GROUP_NAME)
         _report(len(frames), res, notes, P.kind)
     except Exception:
         _rollback(design, start)
@@ -1340,10 +1345,10 @@ def build_split(design, body_1, body_2, pts, P, flip, auto_wall=False):
     """Режим «тела уже разделены»: два тела, точки на одном из них, разрез не делается."""
     _check_design(design, body_1, body_2)
     if body_1.entityToken == body_2.entityToken:
-        raise UserError('Выберите два разных тела.')
+        raise UserError(tr('Выберите два разных тела.'))
     comp = body_1.parentComponent
     if body_2.parentComponent.entityToken != comp.entityToken:
-        raise UserError('Оба тела должны лежать в одном компоненте.')
+        raise UserError(tr('Оба тела должны лежать в одном компоненте.'))
     notes = []
     start = design.timeline.markerPosition
     try:
@@ -1362,7 +1367,7 @@ def build_split(design, body_1, body_2, pts, P, flip, auto_wall=False):
         _place_snaps(design, comp, frames, P, res)
 
         if _group_timeline(design, start):
-            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
+            notes.append(tr('Все операции собраны в группу «%s» на таймлайне.') % GROUP_NAME)
         _report(len(frames), res, notes, P.kind)
     except Exception:
         _rollback(design, start)
@@ -1387,7 +1392,7 @@ def _ring_of(edge):
     e = adsk.fusion.BRepEdge.cast(edge)
     c = adsk.core.Circle3D.cast(e.geometry) if e else None
     if c is None:
-        raise UserError('Выберите круговое ребро (полная окружность) на шве корпуса.')
+        raise UserError(tr('Выберите круговое ребро (полная окружность) на шве корпуса.'))
     return c.center, _unit(c.normal), c.radius
 
 
@@ -1409,7 +1414,7 @@ def _ring_seat_cut(C0, a, plane, flip):
     o, n = plane
     den = a.dotProduct(n)
     if abs(den) < 0.5:
-        raise UserError('Ось кольца не перпендикулярна плоскости реза: кольцо и плоскость должны быть соосны.')
+        raise UserError(tr('Ось кольца не перпендикулярна плоскости реза: кольцо и плоскость должны быть соосны.'))
     t = _v(o.x - C0.x, o.y - C0.y, o.z - C0.z).dotProduct(n) / den
     C = _pt_add(C0, a, t)
     D = a.copy()
@@ -1429,16 +1434,16 @@ def _ring_side_split(body_1, body_2, C, a, u, R, flip):
         D = a.copy()
         D.scaleBy(-1.0)
     else:
-        raise UserError('Кольцевое ребро не лежит на шве первого тела: рядом с ним нет материала тела.')
+        raise UserError(tr('Кольцевое ребро не лежит на шве первого тела: рядом с ним нет материала тела.'))
     owner, other = body_1, body_2
     if flip:
         D.scaleBy(-1.0)
         owner, other = body_2, body_1
     if not _inside(other, _pt_add(p0, D, -0.03), include_boundary=True):
-        raise UserError('Второе тело не найдено по другую сторону шва у кольцевого ребра. Тела должны '
-                        'касаться друг друга по шву.')
+        raise UserError(tr('Второе тело не найдено по другую сторону шва у кольцевого ребра. Тела должны '
+                        'касаться друг друга по шву.'))
     if not _inside(owner, _pt_add(p0, D, 0.03), include_boundary=True):
-        raise UserError('Первое тело не найдено на нужной стороне шва у кольцевого ребра.')
+        raise UserError(tr('Первое тело не найдено на нужной стороне шва у кольцевого ребра.'))
     return D, owner, other
 
 
@@ -1454,14 +1459,14 @@ def build_annular(design, body, body2, cut_ent, rings, P, flip, auto_wall=False)
     plane = None
     if split_mode:
         if body.entityToken == body2.entityToken:
-            raise UserError('Выберите два разных тела.')
+            raise UserError(tr('Выберите два разных тела.'))
         if body2.parentComponent.entityToken != comp.entityToken:
-            raise UserError('Оба тела должны лежать в одном компоненте.')
+            raise UserError(tr('Оба тела должны лежать в одном компоненте.'))
     else:
         plane = _plane_of(cut_ent)
         if plane is None:
-            raise UserError('Кольцевую защёлку можно построить при разрезе плоскостью или плоской гранью. '
-                            'Для кривой реза выберите режим консольной или торсионной защёлки.')
+            raise UserError(tr('Кольцевую защёлку можно построить при разрезе плоскостью или плоской гранью. '
+                            'Для кривой реза выберите режим консольной или торсионной защёлки.'))
     notes = []
     start = design.timeline.markerPosition
     try:
@@ -1478,8 +1483,8 @@ def build_annular(design, body, body2, cut_ent, rings, P, flip, auto_wall=False)
             q_meas = _pt_add(_pt_add(C, u, R), D, 0.03)
             chk = [body] + ([body2] if split_mode else [])
             if min(min(c[0] for c in _closest(b.faces, q_meas)) for b in chk) > 0.03:
-                raise UserError('Кольцо не лежит на наружной цилиндрической поверхности корпуса у шва '
-                                '(радиус или положение ребра не совпадают с телом).')
+                raise UserError(tr('Кольцо не лежит на наружной цилиндрической поверхности корпуса у шва '
+                                '(радиус или положение ребра не совпадают с телом).'))
             seats.append((C, D, u, R, owner, other))
             if auto_wall:
                 walls.append(_measure_wall(comp, q_meas, u))
@@ -1493,8 +1498,8 @@ def build_annular(design, body, body2, cut_ent, rings, P, flip, auto_wall=False)
             sf = sbs.add(sbs.createInput(body, tool, True))
             halves = [sf.bodies.item(i) for i in range(sf.bodies.count)]
             if len(halves) < 2:
-                raise UserError('Разрез не разделил тело на части. Проверьте, что плоскость пересекает тело '
-                                'целиком.')
+                raise UserError(tr('Разрез не разделил тело на части. Проверьте, что плоскость пересекает тело '
+                                'целиком.'))
 
             def side_body(pt):
                 for h in halves:
@@ -1508,8 +1513,8 @@ def build_annular(design, body, body2, cut_ent, rings, P, flip, auto_wall=False)
                 own = side_body(_pt_add(mid, D, 0.03))
                 oth = side_body(_pt_add(mid, D, -0.03))
                 if own is None or oth is None or own.entityToken == oth.entityToken:
-                    raise UserError('Кольцо %d: не удалось определить половины корпуса у шва. Проверьте '
-                                    'толщину стенки и положение ребра.' % (k + 1))
+                    raise UserError(tr('Кольцо %d: не удалось определить половины корпуса у шва. Проверьте '
+                                    'толщину стенки и положение ребра.') % (k + 1))
                 seats[k] = (C, D, u, R, own, oth)
 
         JOIN = adsk.fusion.FeatureOperations.JoinFeatureOperation
@@ -1532,10 +1537,10 @@ def build_annular(design, body, body2, cut_ent, rings, P, flip, auto_wall=False)
             _combine(comp, _fresh(design, oth), [_fresh(design, groove)], CUT)
 
         if _group_timeline(design, start):
-            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
+            notes.append(tr('Все операции собраны в группу «%s» на таймлайне.') % GROUP_NAME)
         res0 = results[0]
         if len(results) > 1:
-            notes.append('Для нескольких колец показан расчёт первого.')
+            notes.append(tr('Для нескольких колец показан расчёт первого.'))
         _report(len(seats), res0, notes, 'annular')
     except Exception:
         _rollback(design, start)
@@ -1557,7 +1562,7 @@ def _make_revolved(comp, anchor, axis, U, poly_mm):
 
     _draw_polygon(sk, [to_sk(zz, rr) for zz, rr in poly_mm])
     if sk.profiles.count < 1:
-        raise UserError('Профиль стойки не замкнулся (проверьте параметры).')
+        raise UserError(tr('Профиль стойки не замкнулся (проверьте параметры).'))
     axis_line = _axis_edge(sk)
     if axis_line is None:       # у профиля нет ребра на оси: рисуем ось отдельно (до чтения профиля)
         z_lo = min(z for z, _ in poly_mm) - 2.0
@@ -1636,9 +1641,9 @@ def build_pin(design, body, body2, pts, P, auto_grip, rot):
     comp = body.parentComponent
     if body2 is not None:
         if body.entityToken == body2.entityToken:
-            raise UserError('Выберите два разных тела.')
+            raise UserError(tr('Выберите два разных тела.'))
         if body2.parentComponent.entityToken != comp.entityToken:
-            raise UserError('Оба тела должны лежать в одном компоненте.')
+            raise UserError(tr('Оба тела должны лежать в одном компоненте.'))
     notes = []
     start = design.timeline.markerPosition
     try:
@@ -1652,13 +1657,13 @@ def build_pin(design, body, body2, pts, P, auto_grip, rot):
             good = [g for g in grips if g]
             if good and len(good) == len(grips):
                 P.grip = min(good)
-                notes.append('Толщина пакета по модели: %.2f мм.' % P.grip)
+                notes.append(tr('Толщина пакета по модели: %.2f мм.') % P.grip)
                 if max(good) - min(good) > 0.3:
-                    notes.append('Толщина пакета в точках разная (%.1f-%.1f мм), взята минимальная.'
+                    notes.append(tr('Толщина пакета в точках разная (%.1f-%.1f мм), взята минимальная.')
                                  % (min(good), max(good)))
             else:
-                notes.append('Не удалось измерить пакет по модели, использовано значение из поля '
-                             '(%.1f мм). Проверьте его.' % P.grip)
+                notes.append(tr('Не удалось измерить пакет по модели, использовано значение из поля '
+                             '(%.1f мм). Проверьте его.') % P.grip)
         res = core.compute_pin(P)
         JOIN = adsk.fusion.FeatureOperations.JoinFeatureOperation
         CUT = adsk.fusion.FeatureOperations.CutFeatureOperation
@@ -1677,21 +1682,21 @@ def build_pin(design, body, body2, pts, P, auto_grip, rot):
                     _combine(comp, _fresh(design, b), [_fresh(design, tool)], CUT)
                     cut_any = True
                 elif b is body or b.entityToken == body.entityToken:
-                    raise UserError('Точка %d: под ней нет материала первого тела на глубину пакета. '
-                                    'Поставьте точку на наружную поверхность стенки.' % (k + 1))
+                    raise UserError(tr('Точка %d: под ней нет материала первого тела на глубину пакета. '
+                                    'Поставьте точку на наружную поверхность стенки.') % (k + 1))
                 else:
-                    notes.append('Точка %d: второе тело не попадает в пакет, прорезь в нём не сделана.' % (k + 1))
+                    notes.append(tr('Точка %d: второе тело не попадает в пакет, прорезь в нём не сделана.') % (k + 1))
             if not cut_any:
-                raise UserError('Не удалось вырезать прорезь.')
+                raise UserError(tr('Не удалось вырезать прорезь.'))
         if _group_timeline(design, start):
-            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
-        msg = ('Готово: %d вилок(и), ветвь %.1f мм, пакет %.1f мм.\n'
-               'Вилки созданы отдельными телами «Snap pin» в рабочем положении; в телах вырезаны прорези.'
+            notes.append(tr('Все операции собраны в группу «%s» на таймлайне.') % GROUP_NAME)
+        msg = (tr('Готово: %d вилок(и), ветвь %.1f мм, пакет %.1f мм.\n'
+               'Вилки созданы отдельными телами «Snap pin» в рабочем положении; в телах вырезаны прорези.')
                % (len(frames), res.length, P.grip))
         extra = list(res.notes) + notes
         msg += '\n' + '\n'.join(extra)
         if res.warnings:
-            msg += '\n\nПредупреждения:\n- ' + '\n- '.join(res.warnings)
+            msg += tr('\n\nПредупреждения:\n- ') + '\n- '.join(res.warnings)
         _ui.messageBox(msg)
     except Exception:
         _rollback(design, start)
@@ -1733,15 +1738,15 @@ def build_pcb(design, body, pts, P, auto_wall, rot):
             else:
                 _combine(comp, _fresh(design, body), [_fresh(design, post)], JOIN)
         if _group_timeline(design, start):
-            notes.append('Все операции собраны в группу «%s» на таймлайне.' % GROUP_NAME)
-        msg = 'Готово: %d стоек(и) под отверстие %.1f мм.' % (len(seats), P.hole_d)
+            notes.append(tr('Все операции собраны в группу «%s» на таймлайне.') % GROUP_NAME)
+        msg = tr('Готово: %d стоек(и) под отверстие %.1f мм.') % (len(seats), P.hole_d)
         if P.separate:
-            msg += ('\nСтойки созданы отдельными телами «PCB post» (в рабочем положении), в теле сделаны '
-                    'глухие отверстия под клей.')
+            msg += (tr('\nСтойки созданы отдельными телами «PCB post» (в рабочем положении), в теле сделаны '
+                    'глухие отверстия под клей.'))
         extra = list(res.notes) + notes
         msg += '\n' + '\n'.join(extra)
         if res.warnings:
-            msg += '\n\nПредупреждения:\n- ' + '\n- '.join(res.warnings)
+            msg += tr('\n\nПредупреждения:\n- ') + '\n- '.join(res.warnings)
         _ui.messageBox(msg)
     except Exception:
         _rollback(design, start)
@@ -1759,7 +1764,7 @@ def run(context):
             old.deleteMe()
         cmd_def = _ui.commandDefinitions.addButtonDefinition(
             CMD_ID, 'Snap-Fit Generator',
-            'Разрезает тело на две половины и строит защёлки под FDM-печать')
+            tr('Разрезает тело на две половины и строит защёлки под FDM-печать'))
         h = CreatedHandler()
         cmd_def.commandCreated.add(h)
         _handlers.append(h)
@@ -1770,7 +1775,7 @@ def run(context):
         panel.controls.addCommand(cmd_def)
     except Exception:
         if _ui:
-            _ui.messageBox('Ошибка запуска аддина:\n' + traceback.format_exc())
+            _ui.messageBox(tr('Ошибка запуска аддина:\n') + traceback.format_exc())
 
 
 def stop(context):
@@ -1784,4 +1789,4 @@ def stop(context):
             cmd_def.deleteMe()
     except Exception:
         if _ui:
-            _ui.messageBox('Ошибка остановки аддина:\n' + traceback.format_exc())
+            _ui.messageBox(tr('Ошибка остановки аддина:\n') + traceback.format_exc())

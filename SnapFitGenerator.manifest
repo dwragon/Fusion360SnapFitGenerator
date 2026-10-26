@@ -4,9 +4,10 @@
     "id": "6f1c1b7e-3f0a-4d51-9a6b-5d2f0c8e7a11",
     "author": "SnapFit",
     "description": {
-        "": "Разрез корпуса, снэп-фит защёлки, вставные вилки и стойки для печатных плат под FDM-печать (PLA / PETG / ABS / ASA / PA)"
+        "": "Body splitting, snap-fit joints, insert forks and PCB standoffs for FDM printing (PLA / PETG / ABS / ASA / PA)",
+        "ru-RU": "Разрез корпуса, снэп-фит защёлки, вставные вилки и стойки для печатных плат под FDM-печать (PLA / PETG / ABS / ASA / PA)"
     },
-    "version": "1.0.2",
+    "version": "1.1.0",
     "runOnStartup": false,
     "supportedOS": "windows|mac",
     "editEnabled": true
