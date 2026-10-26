@@ -954,6 +954,36 @@ def _make_tool(comp, frame, poly_mm, width_mm, off_t=0.0):
     return tool_body
 
 
+def _axis_edge(sk):
+    """Линия эскиза, лежащая на оси вращения (y = 0 в эскизе), или None."""
+    try:
+        lines = sk.sketchCurves.sketchLines
+        for i in range(lines.count):
+            ln = lines.item(i)
+            a, b = ln.startSketchPoint.geometry, ln.endSketchPoint.geometry
+            if abs(a.y) < 1e-6 and abs(b.y) < 1e-6 and a.distanceTo(b) > 1e-6:
+                return ln
+    except Exception:
+        pass
+    return None
+
+
+def _largest_profile(sk):
+    """Профиль эскиза с наибольшей площадью (после любых изменений эскиза читаем профили заново)."""
+    best, best_a = None, -1.0
+    for i in range(sk.profiles.count):
+        p = sk.profiles.item(i)
+        try:
+            a = p.areaProperties().area
+        except Exception:
+            a = 0.0
+        if best is None or a > best_a:
+            best, best_a = p, a
+    if best is None:
+        raise UserError('Профиль не найден.')
+    return best
+
+
 def _revolve_full(comp, prof, axis_line):
     """
     Полный оборот (360 градусов) профиля вокруг оси. Угол в радианах 2*pi Fusion переводит в градусы
@@ -991,11 +1021,12 @@ def _make_ring(comp, anchor, D, U, R_mm, poly_mm):
     _draw_polygon(sk, [to_sk(dd, R_mm + nn) for dd, nn in poly_mm])
     if sk.profiles.count < 1:
         raise UserError('Профиль кольцевой защёлки не замкнулся (проверьте параметры).')
-    prof = sk.profiles.item(0)
     d_lo = min(d for d, _ in poly_mm) - 2.0
     d_hi = max(d for d, _ in poly_mm) + 2.0
+    # ось добавляем ДО чтения профиля: новая кривая пересчитывает профили эскиза и старые ссылки портятся
     axis = sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(d_lo, 0.0), to_sk(d_hi, 0.0))
     axis.isConstruction = True
+    prof = _largest_profile(sk)
 
     body = _revolve_full(comp, prof, axis)
     _move_body(comp, body, anchor, D, U)
@@ -1527,11 +1558,13 @@ def _make_revolved(comp, anchor, axis, U, poly_mm):
     _draw_polygon(sk, [to_sk(zz, rr) for zz, rr in poly_mm])
     if sk.profiles.count < 1:
         raise UserError('Профиль стойки не замкнулся (проверьте параметры).')
-    prof = sk.profiles.item(0)
-    z_lo = min(z for z, _ in poly_mm) - 2.0
-    z_hi = max(z for z, _ in poly_mm) + 2.0
-    axis_line = sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(z_lo, 0.0), to_sk(z_hi, 0.0))
-    axis_line.isConstruction = True
+    axis_line = _axis_edge(sk)
+    if axis_line is None:       # у профиля нет ребра на оси: рисуем ось отдельно (до чтения профиля)
+        z_lo = min(z for z, _ in poly_mm) - 2.0
+        z_hi = max(z for z, _ in poly_mm) + 2.0
+        axis_line = sk.sketchCurves.sketchLines.addByTwoPoints(to_sk(z_lo, 0.0), to_sk(z_hi, 0.0))
+        axis_line.isConstruction = True
+    prof = _largest_profile(sk)
     body = _revolve_full(comp, prof, axis_line)
     _move_body(comp, body, anchor, axis, U)
     return body
