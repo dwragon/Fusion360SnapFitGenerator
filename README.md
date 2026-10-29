@@ -219,6 +219,52 @@ To return to the factory values tick the **“Reset settings to factory defaults
 | Annular in the wall, permanent (90°) | Same, but with a 90° return angle: it cannot be taken apart without damage; without slots it can be airtight | Available |
 | Annular overlay, detachable (60°) | The collar stands inside the enclosure along the wall, the bead enters a groove on the inner side of the wall. For walls of about 2 mm or more | Available |
 
+### Schematics
+
+The pictures are schematic (not to scale) and show the principle of each snap type.
+
+**Cantilever snap: how it works**
+
+Section through the wall. The beam grows on one half and ends with a hook; the other half has a window. When the halves come together the beam deflects by the engagement `y` and then snaps back into the window.
+
+![Cantilever snap: how it works](images/snap_cantilever_en.png)
+
+**Return angle: detachable and permanent**
+
+The lead-in angle makes assembly easy. A 60° return angle lets the snap open without breaking; with 90° it cannot be opened without pressing the beam aside. Both angles are measured from the beam axis.
+
+![Return angle: detachable and permanent](images/snap_angles_en.png)
+
+**Overlay snaps for thin walls (straight and U-shaped)**
+
+The beam stands inside the enclosure along the wall, and the hook enters a window in the wall of the other half. The U-shaped beam is folded to get a large deflection on a short length.
+
+![Overlay snaps for thin walls (straight and U-shaped)](images/snap_overlay_en.png)
+
+**Torsion snap**
+
+A lever with a hook sits on a square torsion bar fixed in two posts (plan view, from inside). On the side view the hook is released by pressing it through the window.
+
+![Torsion snap](images/snap_torsion_en.png)
+
+**Annular snap**
+
+A collar with a bead (a body of revolution) enters an annular groove. The collar is cut into fingers so that the ring can be assembled.
+
+![Annular snap](images/snap_annular_en.png)
+
+**Insert fork snap**
+
+A separate part: the head stays outside, two arms with hooks pass through a slot in one or two walls and snap behind them.
+
+![Insert fork snap](images/snap_fork_en.png)
+
+**PCB standoffs**
+
+A split pin with a conical head goes into the hole of the board and the board sits on the collar. Left: the post is printed with the enclosure. Right: a separate post with a glue-in peg.
+
+![PCB standoffs](images/snap_pcb_en.png)
+
 ## How it is calculated
 
 - The length of a cantilever with a linear taper is calculated from the allowable root strain: `eps = t * y / (2 * K1 * L^2)`, where `t` is the thickness at the root, `y` the engagement and `K1` the beam shape integral (for a constant section `K1 = 1/3` and the formula reduces to `L = sqrt(1.5 * t * y / eps)`). For a taper down to 50% the coefficient is 1.09 instead of 0.67 for a constant-section beam (a beam with such a taper allows about 1.6 times the deflection at the same length).
